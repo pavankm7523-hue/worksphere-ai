@@ -44,6 +44,28 @@ export default function HRDashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
 
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editScore, setEditScore] = useState<number>(4.5);
+  const [editFeedback, setEditFeedback] = useState<string>("");
+
+  const getEmployeePerformance = (empId: number) => {
+    const saved = localStorage.getItem(`worksphere_perf_${empId}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved) as { score: number; feedback: string };
+      } catch (e) {}
+    }
+    return {
+      score: 4.5,
+      feedback: "Exceeds standard delivery benchmarks. Demonstrates excellent cross-functional collaboration and clear architectural execution."
+    };
+  };
+
+  const saveEmployeePerformance = (empId: number, score: number, feedback: string) => {
+    localStorage.setItem(`worksphere_perf_${empId}`, JSON.stringify({ score, feedback }));
+    setEditingId(null);
+  };
+
   // Real Database States
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
@@ -665,40 +687,100 @@ export default function HRDashboardPage() {
               </div>
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {employees.map((emp) => (
-                  <div key={emp.id} className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-sm font-bold text-foreground">{emp.full_name}</h4>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{emp.department} · {emp.role.toUpperCase()}</p>
-                      </div>
-                      <Badge color="violet">Active</Badge>
-                    </div>
+                {employees.map((emp) => {
+                  const perf = getEmployeePerformance(emp.id);
+                  const isEditing = editingId === emp.id;
 
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-muted-foreground">Performance Score:</span>
-                        <span className="font-bold text-foreground font-mono-data">4.5 / 5.0</span>
+                  return (
+                    <div key={emp.id} className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-foreground">{emp.full_name}</h4>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{emp.department} · {emp.role.toUpperCase()}</p>
+                        </div>
+                        <Badge color="violet">Active</Badge>
                       </div>
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <div
-                            key={s}
-                            className={`w-2.5 h-2.5 rounded-full ${
-                              s <= 4 ? "bg-violet-500" : "bg-white/[0.08]"
-                            }`}
-                          />
-                        ))}
-                      </div>
-                    </div>
 
-                    <div className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
-                      <p className="text-[11px] text-muted-foreground leading-normal italic">
-                        "Exceeds standard delivery benchmarks. Demonstrates excellent cross-functional collaboration and clear architectural execution."
-                      </p>
+                      {isEditing ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground uppercase mb-1">Score (0.0 to 5.0)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="5"
+                              step="0.1"
+                              value={editScore}
+                              onChange={(e) => setEditScore(parseFloat(e.target.value) || 0)}
+                              className="w-full text-xs rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-foreground focus:outline-none focus:border-violet-500/50"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground uppercase mb-1">Feedback review</label>
+                            <textarea
+                              rows={3}
+                              value={editFeedback}
+                              onChange={(e) => setEditFeedback(e.target.value)}
+                              className="w-full text-xs rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-foreground focus:outline-none focus:border-violet-500/50 resize-none"
+                            />
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-1.5 rounded-lg text-[10px] text-muted-foreground hover:bg-white/[0.02] font-semibold cursor-pointer border border-transparent"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => saveEmployeePerformance(emp.id, editScore, editFeedback)}
+                              className="px-3 py-1.5 rounded-lg text-[10px] bg-violet-600 hover:bg-violet-700 text-white font-semibold cursor-pointer border border-violet-600 transition-all"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-muted-foreground">Performance Score:</span>
+                              <span className="font-bold text-foreground font-mono-data">{perf.score.toFixed(1)} / 5.0</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <div
+                                  key={s}
+                                  className={`w-2.5 h-2.5 rounded-full ${
+                                    s <= Math.round(perf.score) ? "bg-violet-500" : "bg-white/[0.08]"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
+                            <p className="text-[11px] text-muted-foreground leading-normal italic">
+                              "{perf.feedback}"
+                            </p>
+                          </div>
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => {
+                                setEditingId(emp.id);
+                                setEditScore(perf.score);
+                                setEditFeedback(perf.feedback);
+                              }}
+                              className="text-[10px] text-violet-400 hover:text-violet-300 font-semibold cursor-pointer border-none bg-transparent hover:underline"
+                            >
+                              Edit Review
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
