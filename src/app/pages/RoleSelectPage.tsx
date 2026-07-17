@@ -74,16 +74,18 @@ export default function RoleSelectPage() {
             whileHover={{ y: -4, boxShadow: "0 0 40px rgba(124,58,237,0.2)" }}
             whileTap={{ scale: 0.98 }}
             onClick={() => handleSelect(role)}
-            className="group text-left rounded-3xl border border-white/[0.08] bg-white/[0.03] p-8 hover:border-violet-500/30 transition-all duration-300 backdrop-blur-xl cursor-pointer"
+            className="group text-left rounded-3xl border border-white/[0.08] bg-white/[0.03] p-6 hover:border-violet-500/30 transition-all duration-300 backdrop-blur-xl cursor-pointer relative"
           >
-            <div className="flex items-start justify-between mb-6">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            <div className="mb-6">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
                 style={{ background: "linear-gradient(135deg,rgba(124,58,237,0.3),rgba(79,70,229,0.3))", border: "1px solid rgba(124,58,237,0.3)" }}>
-                <Icon size={24} className="text-violet-300" />
+                <Icon size={20} className="text-violet-300" />
               </div>
+            </div>
+            <div className="absolute top-6 right-6">
               <Badge color={badgeColor}>{badge}</Badge>
             </div>
-            <h2 className="text-xl font-display font-bold mb-3 text-foreground">{title}</h2>
+            <h2 className="text-lg font-display font-bold mb-3 text-foreground">{title}</h2>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">{desc}</p>
             <ul className="space-y-2 mb-6">
               {features.map((f, fi) => (

@@ -146,10 +146,17 @@ export default function AuthPage() {
           resolvedCompanyId = existingCompany[0].id;
         }
 
-        // Proceed to create Auth record
+        // Proceed to create Auth record with metadata for the DB trigger
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
+          options: {
+            data: {
+              full_name: form.name.trim(),
+              company_name: form.companyName.trim(),
+              role: targetRole,
+            }
+          }
         });
 
         if (signUpError) {
@@ -160,52 +167,28 @@ export default function AuthPage() {
 
         const newUser = authData?.user;
         if (newUser) {
-          // If HR: create company record first
-          if (targetRole === "hr") {
-            const { data: newComp, error: createCompErr } = await supabase
-              .from("companies")
-              .insert([{ name: form.companyName.trim() }])
-              .select();
-
-            if (createCompErr) {
-              setError("Failed to register company: " + createCompErr.message);
-              setLoading(false);
-              return;
-            }
-            resolvedCompanyId = newComp[0].id;
-          }
-
-          // Insert profile into employees database table
-          const isHR = targetRole === "hr";
-          const { error: insertError } = await supabase
-            .from("employees")
-            .insert([
-              {
-                user_id: newUser.id,
-                full_name: form.name.trim(),
-                department: "Engineering",
-                role: targetRole,
-                company_id: resolvedCompanyId,
-                status: isHR ? "active" : "pending"
-              },
-            ]);
-
-          if (insertError) {
-            setError("Registration completed, but employee record creation failed: " + insertError.message);
-            setLoading(false);
-            return;
-          }
-
           // If session is already created (auto-login on signup)
           if (authData.session) {
             setJwt(authData.session.access_token);
-            setRole(targetRole);
-            setCompanyId(resolvedCompanyId);
-            setUserStatus(isHR ? "active" : "pending");
+            
+            // Fetch profile created by DB trigger
+            const { data: employeeData } = await supabase
+              .from("employees")
+              .select("role, company_id, status")
+              .eq("user_id", newUser.id);
+            
+            const profile = employeeData && employeeData.length > 0 ? employeeData[0] : null;
+            const userRole = profile?.role || targetRole;
+            const compId = profile?.company_id || null;
+            const status = profile?.status || (targetRole === "hr" ? "active" : "pending");
 
-            if (isHR) {
+            setRole(userRole);
+            setCompanyId(compId);
+            setUserStatus(status);
+
+            if (userRole === "hr") {
               navigate("/briefing");
-            } else if (targetRole === "employee") {
+            } else if (userRole === "employee") {
               navigate("/dashboard/employee");
             } else {
               navigate("/dashboard/manager");
