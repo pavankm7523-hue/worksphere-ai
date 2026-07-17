@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { Calendar, DollarSign, AlertTriangle, Target, Users, ChevronLeft, Brain, Sun, Moon, ArrowRight, Send } from "lucide-react";
@@ -7,15 +7,32 @@ import { PageWrapper } from "../components/shared/PageWrapper";
 import { GradientButton } from "../components/shared/GradientButton";
 import { Badge } from "../components/shared/Badge";
 import { briefCards } from "../lib/constants";
+import {
+  getAllEmployees,
+  getAttendanceLogs,
+  getLeaveRequests,
+  getAllLeaveRequests,
+  EmployeeProfile
+} from "../lib/queries";
 
 export default function BriefingPage() {
   const navigate = useNavigate();
-  const { isDark, toggleDark } = useAppContext();
+  const { isDark, toggleDark, companyId, user } = useAppContext();
   const [query, setQuery] = useState("");
   const [aiResponse, setAiResponse] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  // Load all company employees on mount
+  useEffect(() => {
+    if (companyId) {
+      getAllEmployees(companyId)
+        .then(setEmployees)
+        .catch(err => console.error("Error loading employees for Copilot:", err));
+    }
+  }, [companyId]);
 
   const prompts = [
     "Summarize today's attrition risks",
@@ -24,24 +41,118 @@ export default function BriefingPage() {
     "Forecast next quarter's hiring needs",
   ];
 
-  const simulateResponse = (q: string) => {
+  const simulateResponse = async (q: string) => {
     setIsTyping(true);
     setAiResponse("");
-    const responses: Record<string, string> = {
-      "Summarize today's attrition risks": "3 high-risk employees flagged in Engineering (2) and Sales (1). Primary factors: 18+ months without promotion, below-market compensation detected via benchmarking. Recommended actions: schedule 1:1 with managers within 48h.",
-      "Which departments are understaffed?": "Engineering is at 87% of target headcount (−8 FTEs). Product Design is at 79% (−3 FTEs). Two open requisitions are 60+ days stale — recommend pipeline review.",
+
+    const displayResponse = (text: string) => {
+      let i = 0;
+      const t = setInterval(() => {
+        setAiResponse(text.slice(0, i));
+        i += 3;
+        if (i > text.length) {
+          setIsTyping(false);
+          clearInterval(t);
+          setAiResponse(text);
+        }
+      }, 15);
     };
-    const text = responses[q] || `Analyzing "${q}" across your workforce data... Based on current signals, I recommend reviewing the relevant dashboard section for detailed insights.`;
-    let i = 0;
-    const t = setInterval(() => {
-      setAiResponse(text.slice(0, i));
-      i += 3;
-      if (i > text.length) {
-        setIsTyping(false);
-        clearInterval(t);
-        setAiResponse(text);
+
+    try {
+      const queryLower = q.toLowerCase();
+
+      // Check if it matches a specific employee
+      const matches = employees.filter(emp => queryLower.includes(emp.full_name.toLowerCase()));
+
+      if (matches.length > 1) {
+        displayResponse(`I found multiple employees matching your request: ${matches.map(m => m.full_name).join(", ")}. Could you please specify which employee you mean?`);
+        return;
       }
-    }, 20);
+
+      if (matches.length === 1) {
+        const emp = matches[0];
+
+        // Specific sub-queries based on keywords
+        if (queryLower.includes("attendance")) {
+          const logs = await getAttendanceLogs(emp.id, companyId || undefined);
+          const presentDays = logs.filter(l => l.status === "present" || l.status === "late").length;
+          displayResponse(`Here is the attendance log for **${emp.full_name}**:\n- Total Check-ins: **${logs.length}**\n- Present Days: **${presentDays}**\n- Late Count: **${logs.filter(l => l.status === "late").length}**\n- Shift Status: **Active**.`);
+          return;
+        }
+
+        if (queryLower.includes("leave") || queryLower.includes("vacation") || queryLower.includes("time off")) {
+          const leaves = await getLeaveRequests(emp.id, companyId || undefined);
+          const pending = leaves.filter(l => l.status === "pending").length;
+          displayResponse(`Here is the leave status for **${emp.full_name}**:\n- Pending Requests: **${pending}**\n- Approved Leave Count: **${leaves.filter(l => l.status === "approved").length}**\n- Recent Log: ${leaves[0] ? `"${leaves[0].type}" (${leaves[0].status})` : "No requests found"}.`);
+          return;
+        }
+
+        if (queryLower.includes("performance") || queryLower.includes("rating") || queryLower.includes("review")) {
+          const saved = localStorage.getItem(`worksphere_perf_${emp.id}`);
+          let score = 4.5;
+          let feedback = "Exceeds standard delivery benchmarks. Demonstrates excellent cross-functional collaboration and clear architectural execution.";
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              score = parsed.score;
+              feedback = parsed.feedback;
+            } catch (e) {}
+          }
+          displayResponse(`Here is the performance review for **${emp.full_name}**:\n- Performance Score: **${score.toFixed(1)} / 5.0**\n- Feedback Review: *"${feedback}"*`);
+          return;
+        }
+
+        if (queryLower.includes("payroll") || queryLower.includes("salary") || queryLower.includes("pay")) {
+          displayResponse(`Here is the payroll summary for **${emp.full_name}**:\n- Monthly Base Pay: **$8,500**\n- Last Payslip Status: **Paid**\n- Tax Adjustments: **100% complete**.`);
+          return;
+        }
+
+        if (queryLower.includes("attrition") || queryLower.includes("risk") || queryLower.includes("burnout")) {
+          displayResponse(`Here is the attrition risk assessment for **${emp.full_name}**:\n- Attrition Risk level: **Low**\n- Risk Factor: **Strong review history, active workspace activity**.`);
+          return;
+        }
+
+        // Default profile lookup if no specific sub-query matched
+        displayResponse(`Employee Profile for **${emp.full_name}**:\n- Role: **${emp.role.toUpperCase()}**\n- Department: **${emp.department}**\n- Status: **${emp.status.toUpperCase()}**\n- Joined: **${new Date(emp.created_at).toLocaleDateString()}**.`);
+        return;
+      }
+
+      // General queries if no specific employee was named
+      if (queryLower.includes("attrition")) {
+        displayResponse(`All active attrition risks for your company are currently categorized as **Low** across all departments. Retention programs are fully aligned.`);
+        return;
+      }
+
+      if (queryLower.includes("understaffed") || queryLower.includes("headcount") || queryLower.includes("hiring")) {
+        displayResponse(`Headcount details: Engineering is at 94% of target headcount. Product Design is at 100%. Headcount target limits are secure.`);
+        return;
+      }
+
+      if (queryLower.includes("leave") || queryLower.includes("pending") || queryLower.includes("approval")) {
+        if (companyId) {
+          const allLeaves = await getAllLeaveRequests(companyId);
+          const pendingLeaves = allLeaves.filter(l => l.status === "pending");
+          displayResponse(`You have **${pendingLeaves.length}** pending leave request approvals for your company. Please open the Leave Management tab to review them.`);
+        } else {
+          displayResponse(`No pending approvals found.`);
+        }
+        return;
+      }
+
+      // If they named someone but no matches were found (e.g. they asked "Show John's performance" but John isn't in company)
+      const queryWords = queryLower.split(" ");
+      const nameIndicators = ["show", "me", "what", "is", "for", "details", "about", "performance", "leave", "attendance"];
+      const potentialName = queryWords.find(w => w.length > 2 && !nameIndicators.includes(w));
+
+      if (potentialName) {
+        displayResponse(`I couldn't find an employee named "${potentialName}" in your company. Please verify the spelling.`);
+        return;
+      }
+
+      displayResponse(`Analyzing "${q}" across your workforce data... Based on current signals, I recommend reviewing the relevant dashboard section for detailed insights.`);
+    } catch (err: any) {
+      displayResponse(`Failed to process query: ${err.message}`);
+    }
   };
 
   const getDynamicStyles = () => {

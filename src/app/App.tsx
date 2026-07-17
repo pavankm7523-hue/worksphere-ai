@@ -9,6 +9,7 @@ import BriefingPage from "./pages/BriefingPage";
 import HRDashboardPage from "./pages/HRDashboardPage";
 import EmployeeDashboardPage from "./pages/EmployeeDashboardPage";
 import RecruitmentPage from "./pages/RecruitmentPage";
+import ManagerDashboardPage from "./pages/ManagerDashboardPage";
 
 export default function App() {
   return (
@@ -52,6 +53,16 @@ export default function App() {
             element={
               <ProtectedRoute allowedRole="employee">
                 <EmployeeDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Manager Protected Routes */}
+          <Route
+            path="/dashboard/manager"
+            element={
+              <ProtectedRoute allowedRole="manager">
+                <ManagerDashboardPage />
               </ProtectedRoute>
             }
           />

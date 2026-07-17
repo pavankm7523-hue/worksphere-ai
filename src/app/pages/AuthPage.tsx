@@ -9,12 +9,12 @@ import { supabase } from "../lib/supabaseClient";
 
 export default function AuthPage() {
   const navigate = useNavigate();
-  const { role, setRole, setJwt } = useAppContext();
+  const { role, setRole, setJwt, setCompanyId, setUserStatus } = useAppContext();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ email: "", password: "", name: "" });
+  const [form, setForm] = useState({ email: "", password: "", name: "", companyName: "" });
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -25,9 +25,15 @@ export default function AuthPage() {
     setError("");
 
     // Client-side validations
-    if (mode === "signup" && !form.name.trim()) {
-      setError("Please enter your full name.");
-      return;
+    if (mode === "signup") {
+      if (!form.name.trim()) {
+        setError("Please enter your full name.");
+        return;
+      }
+      if (!form.companyName.trim()) {
+        setError("Please enter your company name.");
+        return;
+      }
     }
     if (!form.email.trim()) {
       setError("Please enter your work email.");
@@ -49,6 +55,8 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
+      const targetRole = role || "hr";
+
       if (mode === "login") {
         // --- Supabase Sign In ---
         const { data, error: authError } = await supabase.auth.signInWithPassword({
@@ -66,7 +74,7 @@ export default function AuthPage() {
           // Fetch corresponding row from employees table
           const { data: employeeData, error: dbError } = await supabase
             .from("employees")
-            .select("role")
+            .select("role, company_id, status")
             .eq("user_id", data.user.id);
 
           if (dbError) {
@@ -75,11 +83,29 @@ export default function AuthPage() {
             return;
           }
 
-          const userRole = employeeData && employeeData.length > 0 ? employeeData[0].role : null;
-          if (userRole) {
-            setRole(userRole as any);
-            if (userRole === "employee") {
+          if (employeeData && employeeData.length > 0) {
+            const profile = employeeData[0];
+            setRole(profile.role);
+            setCompanyId(profile.company_id);
+            setUserStatus(profile.status);
+
+            if (profile.status === "denied") {
+              setError("Your access request was denied. Contact your HR administrator.");
+              setLoading(false);
+              return;
+            }
+
+            if (profile.status === "pending") {
+              // Redirect/Gate screen handles pending state
+              navigate(profile.role === "employee" ? "/dashboard/employee" : "/dashboard/manager");
+              return;
+            }
+
+            // Active path routing
+            if (profile.role === "employee") {
               navigate("/dashboard/employee");
+            } else if (profile.role === "manager") {
+              navigate("/dashboard/manager");
             } else {
               navigate("/briefing");
             }
@@ -90,7 +116,38 @@ export default function AuthPage() {
         }
       } else {
         // --- Supabase Sign Up ---
-        const { data, error: signUpError } = await supabase.auth.signUp({
+        // Validate company name before creating auth record
+        const { data: existingCompany, error: compError } = await supabase
+          .from("companies")
+          .select("id, name")
+          .ilike("name", form.companyName.trim());
+
+        if (compError) {
+          setError("Failed to validate company name: " + compError.message);
+          setLoading(false);
+          return;
+        }
+
+        let resolvedCompanyId: number | null = null;
+
+        if (targetRole === "hr") {
+          if (existingCompany && existingCompany.length > 0) {
+            setError("This company is already registered. Contact your HR administrator for access.");
+            setLoading(false);
+            return;
+          }
+        } else {
+          // Employee or Manager
+          if (!existingCompany || existingCompany.length === 0) {
+            setError("No company found with this name. Check the name with your HR administrator.");
+            setLoading(false);
+            return;
+          }
+          resolvedCompanyId = existingCompany[0].id;
+        }
+
+        // Proceed to create Auth record
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
         });
@@ -101,10 +158,25 @@ export default function AuthPage() {
           return;
         }
 
-        const newUser = data?.user;
+        const newUser = authData?.user;
         if (newUser) {
+          // If HR: create company record first
+          if (targetRole === "hr") {
+            const { data: newComp, error: createCompErr } = await supabase
+              .from("companies")
+              .insert([{ name: form.companyName.trim() }])
+              .select();
+
+            if (createCompErr) {
+              setError("Failed to register company: " + createCompErr.message);
+              setLoading(false);
+              return;
+            }
+            resolvedCompanyId = newComp[0].id;
+          }
+
           // Insert profile into employees database table
-          const targetRole = role || "hr"; // carry over from RoleSelectPage context or default to hr
+          const isHR = targetRole === "hr";
           const { error: insertError } = await supabase
             .from("employees")
             .insert([
@@ -113,6 +185,8 @@ export default function AuthPage() {
                 full_name: form.name.trim(),
                 department: "Engineering",
                 role: targetRole,
+                company_id: resolvedCompanyId,
+                status: isHR ? "active" : "pending"
               },
             ]);
 
@@ -123,16 +197,20 @@ export default function AuthPage() {
           }
 
           // If session is already created (auto-login on signup)
-          if (data.session) {
-            setJwt(data.session.access_token);
+          if (authData.session) {
+            setJwt(authData.session.access_token);
             setRole(targetRole);
-            if (targetRole === "employee") {
+            setCompanyId(resolvedCompanyId);
+            setUserStatus(isHR ? "active" : "pending");
+
+            if (isHR) {
+              navigate("/briefing");
+            } else if (targetRole === "employee") {
               navigate("/dashboard/employee");
             } else {
-              navigate("/briefing");
+              navigate("/dashboard/manager");
             }
           } else {
-            // Email confirmation is required
             setError("Sign up successful! Please check your email inbox to confirm your account before logging in.");
           }
         }
@@ -185,7 +263,7 @@ export default function AuthPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8">
             <p className="text-xs text-muted-foreground mb-1 uppercase tracking-widest font-mono-data">
-              {role === "hr" ? "HR Administrator" : role === "employee" ? "Employee" : "Portal"} Access
+              {role === "hr" ? "HR Administrator" : role === "manager" ? "Manager" : "Employee"} Workspace Access
             </p>
             <h1 className="text-3xl font-display font-bold text-foreground">
               {mode === "login" ? "Welcome back" : "Create account"}
@@ -216,15 +294,28 @@ export default function AuthPage() {
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
+                  className="space-y-4"
                 >
-                  <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Full Name</label>
-                  <input
-                    type="text"
-                    placeholder="Sarah Chen"
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })}
-                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 transition-all"
-                  />
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="Sarah Chen"
+                      value={form.name}
+                      onChange={e => setForm({ ...form, name: e.target.value })}
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">Company Name</label>
+                    <input
+                      type="text"
+                      placeholder="Acme Corp"
+                      value={form.companyName}
+                      onChange={e => setForm({ ...form, companyName: e.target.value })}
+                      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/50 focus:ring-2 focus:ring-violet-500/20 transition-all"
+                    />
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

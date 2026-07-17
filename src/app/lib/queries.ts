@@ -31,7 +31,9 @@ export interface EmployeeProfile {
   user_id: string;
   full_name: string;
   department: string;
-  role: "hr" | "employee";
+  role: "hr" | "employee" | "manager";
+  company_id: number | null;
+  status: "pending" | "active" | "denied";
   created_at: string;
 }
 
@@ -48,12 +50,17 @@ export async function getEmployeeProfile(userId: string) {
 }
 
 // 2. Fetch leave requests history for specific employee
-export async function getLeaveRequests(employeeId: number) {
-  const { data, error } = await supabase
+export async function getLeaveRequests(employeeId: number, companyId?: number) {
+  let query = supabase
     .from("leave_requests")
     .select("*")
-    .eq("employee_id", employeeId)
-    .order("created_at", { ascending: false });
+    .eq("employee_id", employeeId);
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw error;
   return data as LeaveRequest[];
@@ -65,13 +72,14 @@ export async function createLeaveRequest(leaveData: {
   type: "Annual Leave" | "Sick Leave" | "Personal Days";
   start_date: string;
   end_date: string;
-}) {
+}, companyId?: number) {
   const { data, error } = await supabase
     .from("leave_requests")
     .insert([
       {
         ...leaveData,
         status: "pending",
+        company_id: companyId
       },
     ])
     .select();
@@ -81,19 +89,24 @@ export async function createLeaveRequest(leaveData: {
 }
 
 // 4. Fetch attendance records for specific employee
-export async function getAttendanceLogs(employeeId: number) {
-  const { data, error } = await supabase
+export async function getAttendanceLogs(employeeId: number, companyId?: number) {
+  let query = supabase
     .from("attendance")
     .select("*")
-    .eq("employee_id", employeeId)
-    .order("date", { ascending: false });
+    .eq("employee_id", employeeId);
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("date", { ascending: false });
 
   if (error) throw error;
   return data as Attendance[];
 }
 
 // 5. Check in for today (create row)
-export async function checkIn(employeeId: number) {
+export async function checkIn(employeeId: number, companyId?: number) {
   const today = new Date().toISOString().split("T")[0];
   const { data, error } = await supabase
     .from("attendance")
@@ -103,6 +116,7 @@ export async function checkIn(employeeId: number) {
         date: today,
         check_in: new Date().toISOString(),
         status: "present",
+        company_id: companyId
       },
     ])
     .select();
@@ -112,16 +126,21 @@ export async function checkIn(employeeId: number) {
 }
 
 // 6. Check out for today (update check_out field)
-export async function checkOut(employeeId: number) {
+export async function checkOut(employeeId: number, companyId?: number) {
   const today = new Date().toISOString().split("T")[0];
-  const { data, error } = await supabase
+  let query = supabase
     .from("attendance")
     .update({
       check_out: new Date().toISOString(),
     })
     .eq("employee_id", employeeId)
-    .eq("date", today)
-    .select();
+    .eq("date", today);
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.select();
 
   if (error) throw error;
   return data[0] as Attendance;
@@ -130,11 +149,16 @@ export async function checkOut(employeeId: number) {
 // --- HR Role Functions (Unfiltered queries showing all employees data) ---
 
 // 7. Get leave requests for all employees (joined with employee full name)
-export async function getAllLeaveRequests() {
-  const { data, error } = await supabase
+export async function getAllLeaveRequests(companyId?: number) {
+  let query = supabase
     .from("leave_requests")
-    .select("*, employees(full_name)")
-    .order("created_at", { ascending: false });
+    .select("*, employees(full_name, status, role)");
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw error;
   return data as LeaveRequest[];
@@ -153,22 +177,32 @@ export async function updateLeaveRequestStatus(requestId: number, status: "appro
 }
 
 // 9. Get attendance records for all employees
-export async function getAllAttendanceLogs() {
-  const { data, error } = await supabase
+export async function getAllAttendanceLogs(companyId?: number) {
+  let query = supabase
     .from("attendance")
-    .select("*, employees(full_name)")
-    .order("date", { ascending: false });
+    .select("*, employees(full_name, status, role)");
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("date", { ascending: false });
 
   if (error) throw error;
   return data as Attendance[];
 }
 
 // 10. Get all employees profiles
-export async function getAllEmployees() {
-  const { data, error } = await supabase
+export async function getAllEmployees(companyId?: number) {
+  let query = supabase
     .from("employees")
-    .select("*")
-    .order("full_name", { ascending: true });
+    .select("*");
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("full_name", { ascending: true });
 
   if (error) throw error;
   return data as EmployeeProfile[];
@@ -187,15 +221,21 @@ export interface Candidate {
   matched_skills: string[] | null;
   missing_skills: string[] | null;
   stage: "screening" | "interview" | "offer" | "rejected";
+  company_id: number | null;
   created_at: string;
 }
 
 // 11. Fetch all candidates
-export async function getCandidates() {
-  const { data, error } = await supabase
+export async function getCandidates(companyId?: number) {
+  let query = supabase
     .from("candidates")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select("*");
+
+  if (companyId !== undefined) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw error;
   return data as Candidate[];
@@ -206,13 +246,14 @@ export async function createCandidate(candidate: {
   job_title: string;
   resume_url: string;
   stage?: "screening" | "interview" | "offer" | "rejected";
-}) {
+}, companyId?: number) {
   const { data, error } = await supabase
     .from("candidates")
     .insert([
       {
         ...candidate,
-        stage: candidate.stage || "screening"
+        stage: candidate.stage || "screening",
+        company_id: companyId
       }
     ])
     .select();
@@ -243,5 +284,71 @@ export async function updateCandidateStage(id: number, stage: "screening" | "int
 
   if (error) throw error;
   return data[0] as Candidate;
+}
+
+// 15. Get Pending Requests
+export async function getPendingRequests(companyId: number) {
+  const { data, error } = await supabase
+    .from("employees")
+    .select("*")
+    .eq("company_id", companyId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data as EmployeeProfile[];
+}
+
+// 16. Approve Profile
+export async function approveProfile(employeeId: number) {
+  const { data, error } = await supabase
+    .from("employees")
+    .update({ status: "active" })
+    .eq("id", employeeId)
+    .select();
+
+  if (error) throw error;
+  return data[0];
+}
+
+// 17. Deny Profile
+export async function denyProfile(employeeId: number) {
+  const { data, error } = await supabase
+    .from("employees")
+    .update({ status: "denied" })
+    .eq("id", employeeId)
+    .select();
+
+  if (error) throw error;
+  return data[0];
+}
+
+// 18. Get Role Permissions
+export async function getRolePermissions(companyId: number) {
+  const { data, error } = await supabase
+    .from("role_permissions")
+    .select("*")
+    .eq("company_id", companyId);
+
+  if (error) throw error;
+  return data;
+}
+
+// 19. Save Role Permissions
+export async function saveRolePermissions(companyId: number, role: string, permissions: { [module: string]: "on" | "off" }) {
+  const inserts = Object.entries(permissions).map(([module, access_level]) => ({
+    company_id: companyId,
+    role,
+    module,
+    access_level
+  }));
+
+  const { data, error } = await supabase
+    .from("role_permissions")
+    .upsert(inserts)
+    .select();
+
+  if (error) throw error;
+  return data;
 }
 

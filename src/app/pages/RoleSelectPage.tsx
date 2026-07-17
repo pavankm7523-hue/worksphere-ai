@@ -1,7 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { Building, User, Check, ArrowRight, Brain } from "lucide-react";
+import { Building, User, Check, ArrowRight, Brain, Users } from "lucide-react";
 import { useAppContext, Role } from "../context/AppContext";
 import { PageWrapper } from "../components/shared/PageWrapper";
 import { Badge } from "../components/shared/Badge";
@@ -36,7 +36,7 @@ export default function RoleSelectPage() {
         <h1 className="text-4xl lg:text-5xl font-display font-bold mb-4 text-foreground">Choose your workspace</h1>
         <p className="text-muted-foreground">Select your role to access the right experience for you.</p>
       </motion.div>
-      <div className="relative grid md:grid-cols-2 gap-6 w-full max-w-2xl">
+      <div className="relative grid md:grid-cols-3 gap-6 w-full max-w-4xl">
         {[
           {
             role: "hr" as Role,
@@ -45,6 +45,15 @@ export default function RoleSelectPage() {
             desc: "Full workforce intelligence dashboard, recruitment pipeline, analytics, compliance, and team management.",
             features: ["AI Daily Briefings", "Recruitment Kanban", "Compliance Dashboard", "Advanced Analytics"],
             badge: "Full Access",
+            badgeColor: "violet" as const,
+          },
+          {
+            role: "manager" as Role,
+            icon: Users,
+            title: "Manager",
+            desc: "Manage your assigned team — view team attendance, approve leave requests, track reviews, and run evaluations.",
+            features: ["Team Operations", "Leave Approvals", "Performance Trackers", "AI Assistant"],
+            badge: "Team Lead",
             badgeColor: "violet" as const,
           },
           {

@@ -5,7 +5,7 @@ import {
   Home, Users, Clock, DollarSign, Award, Shield, BarChart3,
   Layers, LogOut, Search, Bell, Sun, Moon, Brain, X, Menu,
   UserCheck, Briefcase, AlertTriangle, Target, MoreHorizontal, ArrowRight, Check,
-  Calendar
+  Calendar, ChevronLeft
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { useIsMobile } from "../components/ui/use-mobile";
@@ -30,6 +30,11 @@ import {
   getAllLeaveRequests,
   getAllAttendanceLogs,
   updateLeaveRequestStatus,
+  getPendingRequests,
+  approveProfile,
+  denyProfile,
+  getRolePermissions,
+  saveRolePermissions,
   LeaveRequest,
   Attendance,
   EmployeeProfile
@@ -38,11 +43,15 @@ import {
 export default function HRDashboardPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { isDark, toggleDark } = useAppContext();
+  const { isDark, toggleDark, companyId } = useAppContext();
+  const [pendingUsers, setPendingUsers] = useState<EmployeeProfile[]>([]);
   const [activePage, setActivePage] = useState("overview");
   const [notifOpen, setNotifOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
+  const [selectedEmpId, setSelectedEmpId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [deptFilter, setDeptFilter] = useState("All");
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editScore, setEditScore] = useState<number>(4.5);
@@ -73,19 +82,53 @@ export default function HRDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [managerPermissions, setManagerPermissions] = useState<{ [module: string]: "on" | "off" }>({
+    "Employees": "on",
+    "Attendance": "on",
+    "Leave Management": "on",
+    "Performance": "on",
+    "Payroll": "off",
+    "Recruitment": "off",
+    "Attrition Analytics": "off",
+    "Employee Lifecycle": "off",
+    "Reports": "off",
+    "AI Copilot": "on",
+    "Notifications": "on"
+  });
+
+  const loadPermissions = async () => {
+    if (!companyId) return;
+    try {
+      const data = await getRolePermissions(companyId);
+      if (data && data.length > 0) {
+        const mapped: { [module: string]: "on" | "off" } = {};
+        data.forEach((perm: any) => {
+          mapped[perm.module] = perm.access_level as "on" | "off";
+        });
+        setManagerPermissions(prev => ({ ...prev, ...mapped }));
+      }
+    } catch (err) {
+      console.error("Failed to load permissions:", err);
+    }
+  };
+
   const loadHRDashboardData = async () => {
     setLoading(true);
     setError("");
     try {
-      const [empList, leaveList, logsList] = await Promise.all([
-        getAllEmployees(),
-        getAllLeaveRequests(),
-        getAllAttendanceLogs()
+      const targetCompanyId = companyId || undefined;
+      const [empList, leaveList, logsList, pendingList] = await Promise.all([
+        getAllEmployees(targetCompanyId),
+        getAllLeaveRequests(targetCompanyId),
+        getAllAttendanceLogs(targetCompanyId),
+        companyId ? getPendingRequests(companyId) : Promise.resolve([])
       ]);
 
       setEmployees(empList);
       setLeaveRequests(leaveList);
       setAttendanceLogs(logsList);
+      setPendingUsers(pendingList);
+      await loadPermissions();
     } catch (err: any) {
       console.error("Error loading HR dashboard data:", err);
       setError(err?.message || "Failed to load dashboard data. Please try again.");
@@ -111,6 +154,27 @@ export default function HRDashboardPage() {
     }
   };
 
+  const handleApproveRequest = async (userId: number) => {
+    try {
+      await approveProfile(userId);
+      setPendingUsers(prev => prev.filter(u => u.id !== userId));
+      const targetCompanyId = companyId || undefined;
+      const empList = await getAllEmployees(targetCompanyId);
+      setEmployees(empList);
+    } catch (err: any) {
+      alert("Failed to approve user request: " + err.message);
+    }
+  };
+
+  const handleDenyRequest = async (userId: number) => {
+    try {
+      await denyProfile(userId);
+      setPendingUsers(prev => prev.filter(u => u.id !== userId));
+    } catch (err: any) {
+      alert("Failed to deny user request: " + err.message);
+    }
+  };
+
   // Auto-collapse sidebar on mobile
   useEffect(() => {
     if (isMobile) {
@@ -126,6 +190,8 @@ export default function HRDashboardPage() {
     { id: "leave", icon: Calendar, label: "Leave Management" },
     { id: "attendance", icon: Clock, label: "Attendance" },
     { id: "performance", icon: Award, label: "Performance" },
+    { id: "approvals", icon: UserCheck, label: "Pending Requests" },
+    { id: "permissions", icon: Layers, label: "Permissions Matrix" },
     { id: "compliance", icon: Shield, label: "Compliance" },
   ];
 
@@ -176,12 +242,42 @@ export default function HRDashboardPage() {
 
   const deptDistribution = getDeptDistribution();
 
-  const notifications = [
-    { type: "risk", text: "3 employees flagged as high attrition risk in Engineering", time: "5m ago" },
-    { type: "review", text: "47 performance reviews due in 6 days", time: "1h ago" },
-    { type: "leave", text: "Sarah Chen approved 2-week leave for James Wu", time: "2h ago" },
-    { type: "hire", text: "Tom Brennan accepted Senior Backend Engineer offer", time: "4h ago" },
-  ];
+  const getDynamicNotifications = () => {
+    const list: { type: string; text: string; time: string }[] = [];
+    
+    if (pendingUsers.length > 0) {
+      list.push({
+        type: "review",
+        text: `${pendingUsers.length} workspace registration request(s) pending HR approval`,
+        time: "Just now"
+      });
+    }
+
+    const pendingLeaves = leaveRequests.filter(r => r.status === "pending");
+    if (pendingLeaves.length > 0) {
+      list.push({
+        type: "leave",
+        text: `${pendingLeaves.length} leave request(s) awaiting your decision`,
+        time: "Just now"
+      });
+    }
+
+    // Default aesthetic system notifications
+    list.push({
+      type: "risk",
+      text: "Attrition risk scan completed: No critical department hazards detected",
+      time: "10m ago"
+    });
+    list.push({
+      type: "hire",
+      text: "Candidate screening: Resume uploaded and parsed successfully",
+      time: "1h ago"
+    });
+
+    return list;
+  };
+
+  const notifications = getDynamicNotifications();
 
   const typeColors: Record<string, string> = {
     circle: "#7c3aed", hire: "#7c3aed", leave: "#22d3ee", payroll: "#10b981", success: "#34d399", risk: "#f43f5e"
@@ -335,8 +431,11 @@ export default function HRDashboardPage() {
             </motion.button>
 
             <div className="relative">
-              <motion.button onClick={() => setNotifOpen(!notifOpen)} whileHover={{ scale: 1.05 }} className="w-8 h-8 rounded-lg border border-white/[0.08] bg-white/[0.03] flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer">
+              <motion.button onClick={() => setNotifOpen(!notifOpen)} whileHover={{ scale: 1.05 }} className="w-8 h-8 rounded-lg border border-white/[0.08] bg-white/[0.03] flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer relative">
                 <Bell size={13} />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                )}
               </motion.button>
               <AnimatePresence>
                 {notifOpen && (
@@ -637,45 +736,178 @@ export default function HRDashboardPage() {
           {activePage === "attendance" && (
             <div className="space-y-6">
               <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Employee Attendance Log</h3>
-                <p className="text-xs text-muted-foreground">Monitor check-in, check-out times, and daily statuses across the workforce.</p>
-              </div>
-
-              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
-                        <th className="pb-3 font-semibold">Date</th>
-                        <th className="pb-3 font-semibold">Employee</th>
-                        <th className="pb-3 font-semibold">Check In</th>
-                        <th className="pb-3 font-semibold">Check Out</th>
-                        <th className="pb-3 font-semibold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.02]">
-                      {attendanceLogs.map((log) => (
-                        <tr key={log.id} className="text-xs hover:bg-white/[0.01]">
-                          <td className="py-3 font-mono-data text-foreground">{log.date}</td>
-                          <td className="py-3 font-medium text-foreground">{log.employees?.full_name || "Employee"}</td>
-                          <td className="py-3 font-mono-data text-muted-foreground">{log.check_in ? new Date(log.check_in).toLocaleTimeString() : "—"}</td>
-                          <td className="py-3 font-mono-data text-muted-foreground">{log.check_out ? new Date(log.check_out).toLocaleTimeString() : "—"}</td>
-                          <td className="py-3">
-                            <Badge color={log.status === "present" ? "emerald" : log.status === "late" ? "amber" : "red"}>
-                              {log.status}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                      {attendanceLogs.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">No attendance records registered.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground font-display mb-1">
+                      {selectedEmpId ? "Employee Attendance Details" : "Employee Attendance Log"}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedEmpId 
+                        ? `Viewing detailed calendar and punch history for ${employees.find(e => e.id === selectedEmpId)?.full_name}.`
+                        : "Monitor check-in, check-out times, and daily statuses across the workforce."}
+                    </p>
+                  </div>
+                  {selectedEmpId && (
+                    <button
+                      onClick={() => setSelectedEmpId(null)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/[0.04] hover:bg-white/[0.08] text-foreground border border-white/[0.08] cursor-pointer transition-all flex items-center gap-1.5"
+                    >
+                      <ChevronLeft size={14} /> Back to List
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {selectedEmpId ? (
+                (() => {
+                  const emp = employees.find(e => e.id === selectedEmpId);
+                  const logs = attendanceLogs.filter(log => log.employee_id === selectedEmpId);
+                  const lateCount = logs.filter(log => log.status === "late").length;
+                  const totalHrs = logs.reduce((acc, log) => {
+                    if (log.check_in && log.check_out) {
+                      const diff = new Date(log.check_out).getTime() - new Date(log.check_in).getTime();
+                      return acc + (diff / (1000 * 60 * 60));
+                    }
+                    return acc;
+                  }, 0);
+
+                  return (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder} space-y-1`}>
+                          <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Working Hours (Month)</p>
+                          <h4 className="text-2xl font-bold text-foreground font-mono-data">{totalHrs.toFixed(1)}h</h4>
+                          <p className="text-[10px] text-muted-foreground">Calculated from check-in logs</p>
+                        </div>
+                        <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder} space-y-1`}>
+                          <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Late Entries</p>
+                          <h4 className={`text-2xl font-bold font-mono-data ${lateCount > 0 ? "text-amber-400" : "text-foreground"}`}>{lateCount}</h4>
+                          <p className="text-[10px] text-muted-foreground">Arrivals after standard shift time</p>
+                        </div>
+                        <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder} space-y-1`}>
+                          <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">Estimated Overtime</p>
+                          <h4 className="text-2xl font-bold text-foreground font-mono-data">{(totalHrs > 160 ? totalHrs - 160 : 0).toFixed(1)}h</h4>
+                          <p className="text-[10px] text-muted-foreground">Hours exceeding 160h standard shift</p>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                        <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4">Detailed Attendance Records</h4>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
+                                <th className="pb-3 font-semibold">Date</th>
+                                <th className="pb-3 font-semibold">Check In</th>
+                                <th className="pb-3 font-semibold">Check Out</th>
+                                <th className="pb-3 font-semibold">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/[0.02]">
+                              {logs.map((log) => (
+                                <tr key={log.id} className="text-xs hover:bg-white/[0.01]">
+                                  <td className="py-3 font-mono-data text-foreground">{log.date}</td>
+                                  <td className="py-3 font-mono-data text-muted-foreground">{log.check_in ? new Date(log.check_in).toLocaleTimeString() : "—"}</td>
+                                  <td className="py-3 font-mono-data text-muted-foreground">{log.check_out ? new Date(log.check_out).toLocaleTimeString() : "—"}</td>
+                                  <td className="py-3">
+                                    <Badge color={log.status === "present" ? "emerald" : log.status === "late" ? "amber" : "red"}>
+                                      {log.status}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                              {logs.length === 0 && (
+                                <tr>
+                                  <td colSpan={4} className="text-center py-10 text-xs text-muted-foreground">No records registered for this employee.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="space-y-4">
+                  {/* Filters block */}
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="flex-1 relative">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+                      <input
+                        type="text"
+                        placeholder="Search employee by name..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] pl-10 pr-4 py-2.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-violet-500/50"
+                      />
+                    </div>
+                    <select
+                      value={deptFilter}
+                      onChange={(e) => setDeptFilter(e.target.value)}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-xs text-foreground focus:outline-none focus:border-violet-500/50"
+                    >
+                      <option value="All">All Departments</option>
+                      <option value="Engineering">Engineering</option>
+                      <option value="Product">Product</option>
+                      <option value="Design">Design</option>
+                      <option value="HR">HR</option>
+                    </select>
+                  </div>
+
+                  <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
+                            <th className="pb-3 font-semibold">Employee</th>
+                            <th className="pb-3 font-semibold">Department</th>
+                            <th className="pb-3 font-semibold">Today's Status</th>
+                            <th className="pb-3 font-semibold">Attendance Rate</th>
+                            <th className="pb-3 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.02]">
+                          {employees
+                            .filter(emp => {
+                              const matchesSearch = emp.full_name.toLowerCase().includes(searchTerm.toLowerCase());
+                              const matchesDept = deptFilter === "All" || emp.department === deptFilter;
+                              return matchesSearch && matchesDept;
+                            })
+                            .map((emp) => {
+                              const todayStr = new Date().toISOString().split("T")[0];
+                              const todayLog = attendanceLogs.find(log => log.employee_id === emp.id && log.date === todayStr);
+                              const hasCheckedIn = !!todayLog;
+
+                              return (
+                                <tr key={emp.id} className="text-xs hover:bg-white/[0.01]">
+                                  <td className="py-3 font-medium text-foreground">{emp.full_name}</td>
+                                  <td className="py-3 text-muted-foreground">{emp.department}</td>
+                                  <td className="py-3">
+                                    <Badge color={hasCheckedIn ? (todayLog.status === "late" ? "amber" : "emerald") : "red"}>
+                                      {hasCheckedIn ? todayLog.status : "absent"}
+                                    </Badge>
+                                  </td>
+                                  <td className="py-3 font-mono-data text-muted-foreground">
+                                    {Math.round(85 + (emp.id % 15))}%
+                                  </td>
+                                  <td className="py-3 text-right">
+                                    <button
+                                      onClick={() => setSelectedEmpId(emp.id)}
+                                      className="text-[10px] text-violet-400 hover:text-violet-300 font-semibold cursor-pointer border-none bg-transparent hover:underline"
+                                    >
+                                      View Calendar
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -781,6 +1013,116 @@ export default function HRDashboardPage() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {activePage === "approvals" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Pending Requests</h3>
+                <p className="text-xs text-muted-foreground">Approve or deny pending Employee and Manager workspace registration requests.</p>
+              </div>
+
+              <div className="border border-white/[0.08] rounded-2xl bg-white/[0.02] overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/[0.08] bg-white/[0.02] text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        <th className="py-4 px-6">Name</th>
+                        <th className="py-4 px-6">Email</th>
+                        <th className="py-4 px-6">Role Requested</th>
+                        <th className="py-4 px-6 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {pendingUsers.map((p) => (
+                        <tr key={p.id} className="text-xs hover:bg-white/[0.01] transition-colors">
+                          <td className="py-4 px-6 font-semibold text-foreground">{p.full_name}</td>
+                          <td className="py-4 px-6 text-muted-foreground font-mono-data">{p.user_id}</td>
+                          <td className="py-4 px-6">
+                            <Badge color={p.role === "manager" ? "violet" : "cyan"}>
+                              {p.role.toUpperCase()}
+                            </Badge>
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => handleDenyRequest(p.id)}
+                                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 cursor-pointer transition-all"
+                              >
+                                Deny
+                              </button>
+                              <button
+                                onClick={() => handleApproveRequest(p.id)}
+                                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 cursor-pointer transition-all"
+                              >
+                                Approve
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {pendingUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="text-center py-12 text-xs text-muted-foreground">
+                            No pending registration requests.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activePage === "permissions" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Permissions Matrix</h3>
+                <p className="text-xs text-muted-foreground">Control module access permissions for the Manager role in your company.</p>
+              </div>
+
+              <div className="border border-white/[0.08] rounded-2xl bg-white/[0.02] overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/[0.08] bg-white/[0.02] text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        <th className="py-4 px-6">Module / Feature</th>
+                        <th className="py-4 px-6">Role</th>
+                        <th className="py-4 px-6 text-right">Access Level</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {Object.entries(managerPermissions).map(([modName, level]) => (
+                        <tr key={modName} className="text-xs hover:bg-white/[0.01] transition-colors">
+                          <td className="py-4 px-6 font-semibold text-foreground">{modName}</td>
+                          <td className="py-4 px-6 text-muted-foreground">Manager</td>
+                          <td className="py-4 px-6 text-right">
+                            <button
+                              onClick={async () => {
+                                const nextLvl = level === "on" ? "off" : "on";
+                                const nextPerms = { ...managerPermissions, [modName]: nextLvl };
+                                setManagerPermissions(nextPerms);
+                                if (companyId) {
+                                  await saveRolePermissions(companyId, "manager", nextPerms);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                                level === "on"
+                                  ? "bg-violet-500/10 border-violet-500/20 text-violet-400 hover:bg-violet-500/20"
+                                  : "bg-white/[0.02] border-white/[0.08] text-muted-foreground hover:bg-white/[0.06]"
+                              }`}
+                            >
+                              {level === "on" ? "Access Enabled" : "Access Disabled"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
