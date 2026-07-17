@@ -16,6 +16,9 @@ import {
   getAttendanceLogs,
   checkIn,
   checkOut,
+  getNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   LeaveRequest,
   Attendance,
   EmployeeProfile
@@ -32,6 +35,7 @@ export default function EmployeeDashboardPage() {
   const [attendanceList, setAttendanceList] = useState<Attendance[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   // Leave Form state
   const [showLeaveForm, setShowLeaveForm] = useState(false);
@@ -59,6 +63,16 @@ export default function EmployeeDashboardPage() {
     { goal: "Achieve 95%+ sprint velocity", progress: 91, due: "Ongoing" },
   ];
 
+  const loadNotifications = async (companyId: number) => {
+    if (!user) return;
+    try {
+      const notifList = await getNotifications(companyId, "employee", user.id);
+      setNotifications(notifList);
+    } catch (e) {
+      console.error("Failed to load notifications:", e);
+    }
+  };
+
   // Fetch all employee info on mount
   const loadDashboardData = async () => {
     if (!user) return;
@@ -82,6 +96,9 @@ export default function EmployeeDashboardPage() {
 
       setLeaveList(leaves);
       setAttendanceList(logs);
+      if (empProfile.company_id) {
+        await loadNotifications(empProfile.company_id);
+      }
     } catch (err: any) {
       console.error("Error loading employee dashboard data:", err);
       setPageError(err?.message || "Failed to load dashboard data. Please try again.");
@@ -92,6 +109,25 @@ export default function EmployeeDashboardPage() {
 
   useEffect(() => {
     loadDashboardData();
+
+    // Subscribe to notifications realtime updates
+    const notifChannel = supabase
+      .channel("notifications-employee-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        async () => {
+          const empProfile = await getEmployeeProfile(user.id);
+          if (empProfile?.company_id) {
+            await loadNotifications(empProfile.company_id);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notifChannel);
+    };
   }, [user]);
 
   // Calculate leave balances based on approved requests
@@ -360,24 +396,54 @@ export default function EmployeeDashboardPage() {
               </div>
               {/* Notifications */}
               <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                <p className="text-sm font-semibold text-foreground mb-4">Recent Notifications</p>
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-sm font-semibold text-foreground">Recent Notifications</p>
+                  {notifications.filter(n => !n.is_read).length > 0 && (
+                    <button
+                      onClick={async () => {
+                        if (profile?.company_id) {
+                          await markAllNotificationsAsRead(profile.company_id, "employee", user.id);
+                          await loadNotifications(profile.company_id);
+                        }
+                      }}
+                      className="text-xs text-violet-400 hover:text-violet-300 font-semibold cursor-pointer bg-transparent border-none"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-3">
-                  {leaveList.slice(0, 3).map((leave, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: leave.status === "approved" ? "#10b981" : leave.status === "rejected" ? "#f43f5e" : "#f59e0b" }} />
-                      <div>
-                        <p className="text-xs text-foreground leading-relaxed">
-                          Your leave request for {leave.start_date} to {leave.end_date} has been <span className="font-semibold">{leave.status}</span>
+                  {notifications.slice(0, 5).map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={async () => {
+                        if (!n.is_read) {
+                          await markNotificationAsRead(n.id);
+                          if (profile?.company_id) {
+                            await loadNotifications(profile.company_id);
+                          }
+                        }
+                      }}
+                      className={`flex items-start gap-3 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                        n.is_read ? "opacity-60 hover:bg-white/[0.01]" : "bg-white/[0.01] hover:bg-white/[0.02]"
+                      }`}
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        !n.is_read ? "bg-violet-400" : "bg-muted-foreground"
+                      }`} />
+                      <div className="flex-1">
+                        <p className="text-xs text-foreground leading-relaxed">{n.text}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono-data mt-0.5">
+                          {new Date(n.created_at).toLocaleDateString()} at {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
-                        <p className="text-[10px] text-muted-foreground font-mono-data mt-0.5">{new Date(leave.created_at).toLocaleDateString()}</p>
                       </div>
                     </div>
                   ))}
-                  {leaveList.length === 0 && (
+                  {notifications.length === 0 && (
                     <div className="flex items-start gap-3">
                       <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 bg-violet-400" />
                       <div>
-                        <p className="text-xs text-foreground leading-relaxed">Welcome to WorkSphere AI! Select the "Leave" tab to request time-off.</p>
+                        <p className="text-xs text-foreground leading-relaxed">No new notifications. You're all caught up!</p>
                       </div>
                     </div>
                   )}

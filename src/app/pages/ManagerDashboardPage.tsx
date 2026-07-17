@@ -25,6 +25,9 @@ import {
   denyProfile,
   getPendingRequests,
   saveRolePermissions,
+  getNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   LeaveRequest,
   Attendance,
   EmployeeProfile
@@ -39,6 +42,8 @@ export default function ManagerDashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   // Scoped Team States
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
@@ -78,9 +83,36 @@ export default function ManagerDashboardPage() {
     };
   };
 
+  const getEmployeeLeaveBalance = (employeeId: number) => {
+    let annualLeaveUsed = 0;
+    teamLeaves
+      .filter(req => req.employee_id === employeeId && req.status === "approved" && req.type === "Annual Leave")
+      .forEach(req => {
+        const start = new Date(req.start_date);
+        const end = new Date(req.end_date);
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        annualLeaveUsed += diffDays;
+      });
+    return 21 - annualLeaveUsed;
+  };
+
   const saveEmployeePerformance = (empId: number, score: number, feedback: string) => {
     localStorage.setItem(`worksphere_perf_${empId}`, JSON.stringify({ score, feedback }));
     setEditingId(null);
+  };
+
+  const loadNotifications = async (resolvedCompanyId?: number) => {
+    if (!user) return;
+    try {
+      const compId = resolvedCompanyId || companyId;
+      if (compId) {
+        const notifList = await getNotifications(compId, "manager", user.id);
+        setNotifications(notifList);
+      }
+    } catch (e) {
+      console.error("Failed to load notifications:", e);
+    }
   };
 
   // Load Manager Scoped data
@@ -127,6 +159,7 @@ export default function ManagerDashboardPage() {
       setTeamEmployees(teamList);
       setTeamLeaves(allLeaves.filter(req => teamEmpIds.has(req.employee_id)));
       setTeamAttendance(allLogs.filter(log => teamEmpIds.has(log.employee_id)));
+      await loadNotifications(resolvedCompanyId || undefined);
 
     } catch (err: any) {
       console.error("Error loading manager dashboard data:", err);
@@ -138,6 +171,35 @@ export default function ManagerDashboardPage() {
 
   useEffect(() => {
     loadManagerData();
+
+    // Subscribe to real-time changes on notifications table
+    const notifChannel = supabase
+      .channel("notifications-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to leave request status changes/inserts
+    const leaveChannel = supabase
+      .channel("leave-requests-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "leave_requests" },
+        () => {
+          loadManagerData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notifChannel);
+      supabase.removeChannel(leaveChannel);
+    };
   }, [user]);
 
   // Handle Leave Status Update
@@ -284,6 +346,74 @@ export default function ManagerDashboardPage() {
             <button onClick={toggleDark} className="w-8 h-8 rounded-lg flex items-center justify-center border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] text-muted-foreground hover:text-foreground cursor-pointer">
               {isDark ? <Sun size={15} /> : <Moon size={15} />}
             </button>
+
+            <div className="relative">
+              <motion.button onClick={() => setNotifOpen(!notifOpen)} whileHover={{ scale: 1.05 }} className="w-8 h-8 rounded-lg border border-white/[0.08] bg-white/[0.03] flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer relative">
+                <Bell size={13} />
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full flex items-center justify-center text-[7px] text-white font-bold animate-pulse">
+                    {notifications.filter(n => !n.is_read).length}
+                  </span>
+                )}
+              </motion.button>
+              <AnimatePresence>
+                {notifOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute right-0 mt-2 w-80 rounded-xl border p-4 shadow-xl z-50"
+                    style={{ background: isDark ? "#0d0d1c" : "#ffffff", borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" }}
+                  >
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/[0.05]">
+                      <p className="text-xs font-semibold text-foreground">System Alerts</p>
+                      {notifications.filter(n => !n.is_read).length > 0 && (
+                        <button
+                          onClick={async () => {
+                            if (companyId && user) {
+                              await markAllNotificationsAsRead(companyId, "manager", user.id);
+                              await loadNotifications();
+                            }
+                          }}
+                          className="text-[10px] text-violet-400 hover:text-violet-300 font-semibold cursor-pointer bg-transparent border-none"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={async () => {
+                            if (!n.is_read) {
+                              await markNotificationAsRead(n.id);
+                              await loadNotifications();
+                            }
+                          }}
+                          className={`flex items-start gap-2.5 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            n.is_read ? "opacity-60 hover:bg-white/[0.02]" : "bg-white/[0.02] hover:bg-white/[0.04]"
+                          }`}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                            !n.is_read ? "bg-violet-400" : "bg-muted-foreground"
+                          }`} />
+                          <div className="flex-1">
+                            <p className="text-[11px] text-foreground leading-normal">{n.text}</p>
+                            <p className="text-[9px] text-muted-foreground font-mono-data mt-0.5">
+                              {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {notifications.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground text-center py-4">No notifications yet</p>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </header>
 
@@ -359,24 +489,53 @@ export default function ManagerDashboardPage() {
                   </div>
 
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {teamEmployees.map(emp => (
-                      <div key={emp.id} className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                        <div>
-                          <h4 className="text-sm font-bold text-foreground">{emp.full_name}</h4>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{emp.department} · {emp.role.toUpperCase()}</p>
-                        </div>
-                        <div className="space-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Status:</span>
-                            <span className="text-foreground capitalize">{emp.status}</span>
+                    {teamEmployees.map(emp => {
+                      const perf = getEmployeePerformance(emp.id);
+                      return (
+                        <div key={emp.id} className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder} hover:y-[-2px] transition-all`}>
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h4 className="text-sm font-bold text-foreground">{emp.full_name}</h4>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{emp.department} · {emp.role.toUpperCase()}</p>
+                            </div>
+                            <Badge color={emp.status === "active" ? "emerald" : emp.status === "pending" ? "amber" : "red"}>
+                              {emp.status}
+                            </Badge>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Joined:</span>
-                            <span className="text-foreground font-mono-data">{new Date(emp.created_at).toLocaleDateString()}</span>
+                          
+                          <div className="space-y-2 text-xs border-t border-white/[0.04] pt-3">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Employee ID:</span>
+                              <span className="text-foreground font-mono-data">EMP-{emp.id}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Email:</span>
+                              <span className="text-foreground font-mono-data truncate max-w-[150px]">{emp.email || "—"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Phone:</span>
+                              <span className="text-foreground font-mono-data">{emp.phone || "—"}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Leave Balance:</span>
+                              <span className="text-foreground font-mono-data font-semibold">{getEmployeeLeaveBalance(emp.id)} days</span>
+                            </div>
                           </div>
+
+                          {permissions["Performance"] === "on" && (
+                            <div className="border-t border-white/[0.04] pt-3 space-y-1">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="text-muted-foreground">Performance Score:</span>
+                                <span className="font-bold text-foreground font-mono-data">{perf.score.toFixed(1)} / 5.0</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground leading-normal italic truncate">
+                                "{perf.feedback}"
+                              </p>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {teamEmployees.length === 0 && (
                       <div className="col-span-full text-center py-12 text-xs text-muted-foreground">
                         No team members registered.

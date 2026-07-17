@@ -35,6 +35,9 @@ import {
   denyProfile,
   getRolePermissions,
   saveRolePermissions,
+  getNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
   LeaveRequest,
   Attendance,
   EmployeeProfile
@@ -43,8 +46,9 @@ import {
 export default function HRDashboardPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { isDark, toggleDark, companyId } = useAppContext();
+  const { isDark, toggleDark, companyId, user } = useAppContext();
   const [pendingUsers, setPendingUsers] = useState<EmployeeProfile[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [activePage, setActivePage] = useState("overview");
   const [notifOpen, setNotifOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -112,6 +116,19 @@ export default function HRDashboardPage() {
     }
   };
 
+  const loadNotifications = async (resolvedCompanyId?: number) => {
+    if (!user) return;
+    try {
+      const compId = resolvedCompanyId || companyId;
+      if (compId) {
+        const notifList = await getNotifications(compId, "hr", user.id);
+        setNotifications(notifList);
+      }
+    } catch (e) {
+      console.error("Failed to load notifications:", e);
+    }
+  };
+
   const loadHRDashboardData = async () => {
     setLoading(true);
     setError("");
@@ -119,12 +136,12 @@ export default function HRDashboardPage() {
       // Resolve companyId from DB if context is missing (e.g. page reload)
       let resolvedCompanyId = companyId;
       if (!resolvedCompanyId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (currentUser) {
           const { data: profile } = await supabase
             .from("employees")
             .select("company_id")
-            .eq("user_id", user.id)
+            .eq("user_id", currentUser.id)
             .single();
           resolvedCompanyId = profile?.company_id || null;
         }
@@ -141,6 +158,7 @@ export default function HRDashboardPage() {
       setLeaveRequests(leaveList);
       setAttendanceLogs(logsList);
       setPendingUsers(pendingList);
+      await loadNotifications(resolvedCompanyId || undefined);
       await loadPermissions();
     } catch (err: any) {
       console.error("Error loading HR dashboard data:", err);
@@ -152,7 +170,36 @@ export default function HRDashboardPage() {
 
   useEffect(() => {
     loadHRDashboardData();
-  }, []);
+
+    // Subscribe to real-time changes on employees table to update pending list automatically
+    const empChannel = supabase
+      .channel("employees-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "employees" },
+        () => {
+          loadHRDashboardData();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to real-time changes on notifications table
+    const notifChannel = supabase
+      .channel("notifications-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications" },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(empChannel);
+      supabase.removeChannel(notifChannel);
+    };
+  }, [user]);
 
   // Handle Approve/Reject action
   const handleStatusUpdate = async (requestId: number, newStatus: "approved" | "rejected") => {
@@ -170,10 +217,7 @@ export default function HRDashboardPage() {
   const handleApproveRequest = async (userId: number) => {
     try {
       await approveProfile(userId);
-      setPendingUsers(prev => prev.filter(u => u.id !== userId));
-      const targetCompanyId = companyId || undefined;
-      const empList = await getAllEmployees(targetCompanyId);
-      setEmployees(empList);
+      await loadHRDashboardData();
     } catch (err: any) {
       alert("Failed to approve user request: " + err.message);
     }
@@ -182,7 +226,7 @@ export default function HRDashboardPage() {
   const handleDenyRequest = async (userId: number) => {
     try {
       await denyProfile(userId);
-      setPendingUsers(prev => prev.filter(u => u.id !== userId));
+      await loadHRDashboardData();
     } catch (err: any) {
       alert("Failed to deny user request: " + err.message);
     }
@@ -200,7 +244,6 @@ export default function HRDashboardPage() {
   const navItems = [
     { id: "overview", icon: Home, label: "Overview" },
     { id: "recruitment", icon: Brain, label: "Recruitment (AI)", action: () => navigate("/recruitment") },
-    { id: "leave", icon: Calendar, label: "Leave Management" },
     { id: "attendance", icon: Clock, label: "Attendance" },
     { id: "performance", icon: Award, label: "Performance" },
     { id: "approvals", icon: UserCheck, label: "Pending Requests" },
@@ -254,43 +297,6 @@ export default function HRDashboardPage() {
   };
 
   const deptDistribution = getDeptDistribution();
-
-  const getDynamicNotifications = () => {
-    const list: { type: string; text: string; time: string }[] = [];
-    
-    if (pendingUsers.length > 0) {
-      list.push({
-        type: "review",
-        text: `${pendingUsers.length} workspace registration request(s) pending HR approval`,
-        time: "Just now"
-      });
-    }
-
-    const pendingLeaves = leaveRequests.filter(r => r.status === "pending");
-    if (pendingLeaves.length > 0) {
-      list.push({
-        type: "leave",
-        text: `${pendingLeaves.length} leave request(s) awaiting your decision`,
-        time: "Just now"
-      });
-    }
-
-    // Default aesthetic system notifications
-    list.push({
-      type: "risk",
-      text: "Attrition risk scan completed: No critical department hazards detected",
-      time: "10m ago"
-    });
-    list.push({
-      type: "hire",
-      text: "Candidate screening: Resume uploaded and parsed successfully",
-      time: "1h ago"
-    });
-
-    return list;
-  };
-
-  const notifications = getDynamicNotifications();
 
   const typeColors: Record<string, string> = {
     circle: "#7c3aed", hire: "#7c3aed", leave: "#22d3ee", payroll: "#10b981", success: "#34d399", risk: "#f43f5e"
@@ -446,8 +452,10 @@ export default function HRDashboardPage() {
             <div className="relative">
               <motion.button onClick={() => setNotifOpen(!notifOpen)} whileHover={{ scale: 1.05 }} className="w-8 h-8 rounded-lg border border-white/[0.08] bg-white/[0.03] flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer relative">
                 <Bell size={13} />
-                {notifications.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                {notifications.filter(n => !n.is_read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full flex items-center justify-center text-[7px] text-white font-bold animate-pulse">
+                    {notifications.filter(n => !n.is_read).length}
+                  </span>
                 )}
               </motion.button>
               <AnimatePresence>
@@ -456,20 +464,53 @@ export default function HRDashboardPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 10 }}
-                    className="absolute right-0 mt-2 w-72 rounded-xl border p-4 shadow-xl z-50"
+                    className="absolute right-0 mt-2 w-80 rounded-xl border p-4 shadow-xl z-50"
                     style={{ background: dynamicStyles.dropdownBg, borderColor: dynamicStyles.dropdownBorder }}
                   >
-                    <p className="text-xs font-semibold text-foreground mb-3">System Alerts</p>
-                    <div className="space-y-3">
-                      {notifications.map((n, i) => (
-                        <div key={i} className="flex items-start gap-2.5">
-                          <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${n.type === "risk" ? "bg-red-400" : "bg-violet-400"}`} />
-                          <div>
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/[0.05]">
+                      <p className="text-xs font-semibold text-foreground">System Alerts</p>
+                      {notifications.filter(n => !n.is_read).length > 0 && (
+                        <button
+                          onClick={async () => {
+                            if (companyId && user) {
+                              await markAllNotificationsAsRead(companyId, "hr", user.id);
+                              await loadNotifications();
+                            }
+                          }}
+                          className="text-[10px] text-violet-400 hover:text-violet-300 font-semibold cursor-pointer bg-transparent border-none"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={async () => {
+                            if (!n.is_read) {
+                              await markNotificationAsRead(n.id);
+                              await loadNotifications();
+                            }
+                          }}
+                          className={`flex items-start gap-2.5 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                            n.is_read ? "opacity-60 hover:bg-white/[0.02]" : "bg-white/[0.02] hover:bg-white/[0.04]"
+                          }`}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                            !n.is_read ? "bg-violet-400" : "bg-muted-foreground"
+                          }`} />
+                          <div className="flex-1">
                             <p className="text-[11px] text-foreground leading-normal">{n.text}</p>
-                            <p className="text-[9px] text-muted-foreground font-mono-data mt-0.5">{n.time}</p>
+                            <p className="text-[9px] text-muted-foreground font-mono-data mt-0.5">
+                              {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
                           </div>
                         </div>
                       ))}
+                      {notifications.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground text-center py-4">No notifications yet</p>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -619,132 +660,33 @@ export default function HRDashboardPage() {
                   </div>
                 </div>
 
-                {/* Actionable Pending Leave Requests */}
-                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-sm font-semibold text-foreground font-display">Pending Leave Requests</p>
-                    <Badge color="violet">Review Needed</Badge>
-                  </div>
-                  <div className="space-y-3 overflow-y-auto" style={{ maxHeight: 180 }}>
-                    {leaveRequests.filter(r => r.status === "pending").map((req, i) => (
-                      <div key={i} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02] flex flex-col gap-2">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Staff Member"}</p>
-                            <p className="text-[10px] text-muted-foreground font-mono-data">{req.type} · {req.start_date} to {req.end_date}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 justify-end">
-                          <button
-                            onClick={() => handleStatusUpdate(req.id, "rejected")}
-                            className="px-2 py-1 rounded text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold cursor-pointer border border-red-500/20"
-                          >
-                            Reject
-                          </button>
-                          <button
-                            onClick={() => handleStatusUpdate(req.id, "approved")}
-                            className="px-2 py-1 rounded text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold cursor-pointer border border-emerald-500/20"
-                          >
-                            Approve
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {leaveRequests.filter(r => r.status === "pending").length === 0 && (
-                      <p className="text-xs text-muted-foreground text-center py-10">No pending leave requests.</p>
-                    )}
-                  </div>
-                </div>
+                {/* Read-Only Recent Leave Activities */}
+                 <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                   <div className="flex items-center justify-between mb-4">
+                     <p className="text-sm font-semibold text-foreground font-display">Recent Leave Activities</p>
+                     <Badge color="cyan">Read Only</Badge>
+                   </div>
+                   <div className="space-y-3 overflow-y-auto" style={{ maxHeight: 180 }}>
+                     {leaveRequests.slice(0, 5).map((req, i) => (
+                       <div key={i} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02] flex items-center justify-between">
+                         <div>
+                           <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Staff Member"}</p>
+                           <p className="text-[10px] text-muted-foreground font-mono-data">{req.type} · {req.start_date} to {req.end_date}</p>
+                         </div>
+                         <Badge color={req.status === "approved" ? "emerald" : req.status === "rejected" ? "red" : "amber"}>
+                           {req.status}
+                         </Badge>
+                       </div>
+                     ))}
+                     {leaveRequests.length === 0 && (
+                       <p className="text-xs text-muted-foreground text-center py-10">No recent leave activities.</p>
+                     )}
+                   </div>
+                 </div>
               </div>
             </>
           )}
 
-          {activePage === "leave" && (
-            <div className="space-y-6">
-              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Leave Requests Management</h3>
-                <p className="text-xs text-muted-foreground">Review, approve, or reject employee leave requests.</p>
-              </div>
-
-              <div className="grid lg:grid-cols-3 gap-6">
-                {/* Pending Leave Requests */}
-                <div className="lg:col-span-1 space-y-4">
-                  <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">Pending Approvals</h4>
-                      <Badge color="violet">{leaveRequests.filter(r => r.status === "pending").length}</Badge>
-                    </div>
-                    <div className="space-y-3">
-                      {leaveRequests.filter(r => r.status === "pending").map((req) => (
-                        <div key={req.id} className="p-4 rounded-xl bg-white/[0.01] border border-white/[0.03] space-y-3">
-                          <div>
-                            <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Employee"}</p>
-                            <p className="text-[10px] text-violet-400 font-medium mt-0.5">{req.type}</p>
-                            <p className="text-[10px] text-muted-foreground mt-1 font-mono-data">{req.start_date} to {req.end_date}</p>
-                          </div>
-                          <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => handleStatusUpdate(req.id, "rejected")}
-                              className="px-3 py-1.5 rounded-lg text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold cursor-pointer border border-red-500/20 transition-all"
-                            >
-                              Reject
-                            </button>
-                            <button
-                              onClick={() => handleStatusUpdate(req.id, "approved")}
-                              className="px-3 py-1.5 rounded-lg text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold cursor-pointer border border-emerald-500/20 transition-all"
-                            >
-                              Approve
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {leaveRequests.filter(r => r.status === "pending").length === 0 && (
-                        <p className="text-xs text-muted-foreground text-center py-10">All requests caught up!</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* History Log */}
-                <div className="lg:col-span-2">
-                  <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4">Request Log</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
-                            <th className="pb-3 font-semibold">Employee</th>
-                            <th className="pb-3 font-semibold">Type</th>
-                            <th className="pb-3 font-semibold">Dates</th>
-                            <th className="pb-3 font-semibold">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/[0.02]">
-                          {leaveRequests.map((req) => (
-                            <tr key={req.id} className="text-xs hover:bg-white/[0.01]">
-                              <td className="py-3 font-medium text-foreground">{req.employees?.full_name || "Employee"}</td>
-                              <td className="py-3 text-muted-foreground">{req.type}</td>
-                              <td className="py-3 font-mono-data text-muted-foreground">{req.start_date} to {req.end_date}</td>
-                              <td className="py-3">
-                                <Badge color={req.status === "approved" ? "emerald" : req.status === "rejected" ? "red" : "amber"}>
-                                  {req.status}
-                                </Badge>
-                              </td>
-                            </tr>
-                          ))}
-                          {leaveRequests.length === 0 && (
-                            <tr>
-                              <td colSpan={4} className="text-center py-10 text-xs text-muted-foreground">No leave history records found.</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {activePage === "attendance" && (
             <div className="space-y-6">

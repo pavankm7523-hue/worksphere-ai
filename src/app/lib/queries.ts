@@ -35,6 +35,8 @@ export interface EmployeeProfile {
   company_id: number | null;
   status: "pending" | "active" | "denied";
   created_at: string;
+  email?: string;
+  phone?: string;
 }
 
 // 1. Fetch employee profile linked to user_id
@@ -85,7 +87,32 @@ export async function createLeaveRequest(leaveData: {
     .select();
 
   if (error) throw error;
-  return data[0] as LeaveRequest;
+
+  const insertedLeave = data[0] as LeaveRequest;
+
+  // Trigger notification for the manager asynchronously
+  try {
+    // 1. Get employee full name and manager user_id
+    const { data: empProfile } = await supabase
+      .from("employees")
+      .select("full_name, manager_id")
+      .eq("id", leaveData.employee_id)
+      .single();
+
+    if (empProfile && companyId) {
+      await createNotification({
+        company_id: companyId,
+        role: "manager",
+        user_id: empProfile.manager_id || undefined,
+        type: "leave_request",
+        text: `New leave request submitted by ${empProfile.full_name} (${leaveData.type}: ${leaveData.start_date} to ${leaveData.end_date})`
+      });
+    }
+  } catch (notifErr) {
+    console.error("Failed to create leave submission notification:", notifErr);
+  }
+
+  return insertedLeave;
 }
 
 // 4. Fetch attendance records for specific employee
@@ -173,7 +200,33 @@ export async function updateLeaveRequestStatus(requestId: number, status: "appro
     .select();
 
   if (error) throw error;
-  return data[0] as LeaveRequest;
+
+  const updatedLeave = data[0] as LeaveRequest;
+
+  // Trigger notification for the employee asynchronously
+  try {
+    // Get leave details and employee user_id
+    const { data: leaveDetails } = await supabase
+      .from("leave_requests")
+      .select("company_id, start_date, end_date, type, employees(user_id, full_name)")
+      .eq("id", requestId)
+      .single();
+
+    if (leaveDetails && leaveDetails.employees) {
+      const emp = leaveDetails.employees as any;
+      await createNotification({
+        company_id: leaveDetails.company_id,
+        role: "employee",
+        user_id: emp.user_id,
+        type: `leave_${status}`,
+        text: `Your leave request for ${leaveDetails.type} (${leaveDetails.start_date} to ${leaveDetails.end_date}) has been ${status}.`
+      });
+    }
+  } catch (notifErr) {
+    console.error("Failed to create leave status update notification:", notifErr);
+  }
+
+  return updatedLeave;
 }
 
 // 9. Get attendance records for all employees
@@ -351,4 +404,77 @@ export async function saveRolePermissions(companyId: number, role: string, permi
   if (error) throw error;
   return data;
 }
+
+// 20. Notifications System functions
+export interface AppNotification {
+  id: number;
+  company_id: number;
+  user_id: string | null;
+  role: "hr" | "manager" | "employee" | null;
+  type: string;
+  text: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export async function getNotifications(companyId: number, role: string, userId: string) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("company_id", companyId)
+    .or(`user_id.eq.${userId},role.eq.${role}`)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data as AppNotification[];
+}
+
+export async function createNotification(notif: {
+  company_id: number;
+  role: "hr" | "manager" | "employee";
+  user_id?: string;
+  type: string;
+  text: string;
+}) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .insert([
+      {
+        company_id: notif.company_id,
+        role: notif.role,
+        user_id: notif.user_id || null,
+        type: notif.type,
+        text: notif.text,
+        is_read: false
+      }
+    ])
+    .select();
+
+  if (error) throw error;
+  return data[0] as AppNotification;
+}
+
+export async function markNotificationAsRead(id: number) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .update({ is_read: true })
+    .eq("id", id)
+    .select();
+
+  if (error) throw error;
+  return data[0] as AppNotification;
+}
+
+export async function markAllNotificationsAsRead(companyId: number, role: string, userId: string) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .update({ is_read: true })
+    .eq("company_id", companyId)
+    .or(`user_id.eq.${userId},role.eq.${role}`)
+    .select();
+
+  if (error) throw error;
+  return data as AppNotification[];
+}
+
 
