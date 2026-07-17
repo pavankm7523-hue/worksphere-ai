@@ -1,11 +1,51 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
-import { Brain, Eye, EyeOff, AlertTriangle, ChevronLeft, Shield } from "lucide-react";
+import { Brain, Eye, EyeOff, AlertTriangle, ChevronLeft, Shield, Building2, Users, User } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PageWrapper } from "../components/shared/PageWrapper";
 import { GradientButton } from "../components/shared/GradientButton";
 import { supabase } from "../lib/supabaseClient";
+
+// Role-specific UI config
+const roleConfig = {
+  hr: {
+    label: "HR Administrator",
+    icon: Building2,
+    accent: "#7c3aed",
+    signupHeading: "Register your company",
+    signupSubtext: "Set up your organisation on WorkSphere AI.",
+    loginHeading: "Welcome back, HR Admin",
+    companyFieldLabel: "Company Name",
+    companyFieldPlaceholder: "Acme Corp",
+    companyFieldHint: "Creating a new company workspace.",
+    namePlaceholder: "Sarah Chen",
+  },
+  manager: {
+    label: "Manager",
+    icon: Users,
+    accent: "#4f46e5",
+    signupHeading: "Join your workspace",
+    signupSubtext: "Connect to your company on WorkSphere AI.",
+    loginHeading: "Welcome back, Manager",
+    companyFieldLabel: "Your Company Name",
+    companyFieldPlaceholder: "Acme Corp",
+    companyFieldHint: "Enter the exact company name registered by your HR admin.",
+    namePlaceholder: "John Smith",
+  },
+  employee: {
+    label: "Employee",
+    icon: User,
+    accent: "#0891b2",
+    signupHeading: "Create your account",
+    signupSubtext: "Join your company portal on WorkSphere AI.",
+    loginHeading: "Welcome back",
+    companyFieldLabel: "Your Company Name",
+    companyFieldPlaceholder: "Acme Corp",
+    companyFieldHint: "Enter the exact company name registered by your HR admin.",
+    namePlaceholder: "Alex Johnson",
+  },
+};
 
 export default function AuthPage() {
   const navigate = useNavigate();
@@ -16,6 +56,10 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({ email: "", password: "", name: "", companyName: "" });
 
+  const resolvedRole = (role || "employee") as "hr" | "manager" | "employee";
+  const cfg = roleConfig[resolvedRole];
+  const RoleIcon = cfg.icon;
+
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
@@ -24,14 +68,13 @@ export default function AuthPage() {
     e.preventDefault();
     setError("");
 
-    // Client-side validations
     if (mode === "signup") {
       if (!form.name.trim()) {
         setError("Please enter your full name.");
         return;
       }
       if (!form.companyName.trim()) {
-        setError("Please enter your company name.");
+        setError(`Please enter your ${resolvedRole === "hr" ? "company name" : "company name to join"}.`);
         return;
       }
     }
@@ -55,10 +98,9 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
-      const targetRole = role || "hr";
+      const targetRole = resolvedRole;
 
       if (mode === "login") {
-        // --- Supabase Sign In ---
         const { data, error: authError } = await supabase.auth.signInWithPassword({
           email: form.email,
           password: form.password,
@@ -71,7 +113,6 @@ export default function AuthPage() {
         }
 
         if (data?.user) {
-          // Fetch corresponding row from employees table
           const { data: employeeData, error: dbError } = await supabase
             .from("employees")
             .select("role, company_id, status")
@@ -96,12 +137,10 @@ export default function AuthPage() {
             }
 
             if (profile.status === "pending") {
-              // Redirect/Gate screen handles pending state
               navigate(profile.role === "employee" ? "/dashboard/employee" : "/dashboard/manager");
               return;
             }
 
-            // Active path routing
             if (profile.role === "employee") {
               navigate("/dashboard/employee");
             } else if (profile.role === "manager") {
@@ -110,13 +149,10 @@ export default function AuthPage() {
               navigate("/dashboard/hr");
             }
           } else {
-            // Logged in but has no profile row -> ask them to choose workspace
             navigate("/role-select");
           }
         }
       } else {
-        // --- Supabase Sign Up ---
-        // Validate company name before creating auth record
         const { data: existingCompany, error: compError } = await supabase
           .from("companies")
           .select("id, name")
@@ -128,8 +164,6 @@ export default function AuthPage() {
           return;
         }
 
-        let resolvedCompanyId: number | null = null;
-
         if (targetRole === "hr") {
           if (existingCompany && existingCompany.length > 0) {
             setError("This company is already registered. Contact your HR administrator for access.");
@@ -137,16 +171,13 @@ export default function AuthPage() {
             return;
           }
         } else {
-          // Employee or Manager
           if (!existingCompany || existingCompany.length === 0) {
-            setError("No company found with this name. Check the name with your HR administrator.");
+            setError("No company found with this name. Double-check the name with your HR administrator.");
             setLoading(false);
             return;
           }
-          resolvedCompanyId = existingCompany[0].id;
         }
 
-        // Proceed to create Auth record with metadata for the DB trigger
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
@@ -167,16 +198,14 @@ export default function AuthPage() {
 
         const newUser = authData?.user;
         if (newUser) {
-          // If session is already created (auto-login on signup)
           if (authData.session) {
             setJwt(authData.session.access_token);
-            
-            // Fetch profile created by DB trigger
+
             const { data: employeeData } = await supabase
               .from("employees")
               .select("role, company_id, status")
               .eq("user_id", newUser.id);
-            
+
             const profile = employeeData && employeeData.length > 0 ? employeeData[0] : null;
             const userRole = profile?.role || targetRole;
             const compId = profile?.company_id || null;
@@ -407,6 +436,7 @@ export default function AuthPage() {
               type="submit"
               size="lg"
               className="w-full justify-center mt-2"
+              style={{ background: `linear-gradient(135deg,${cfg.accent},${cfg.accent}bb)` } as React.CSSProperties}
             >
               {loading ? (
                 <span className="flex items-center gap-2">
