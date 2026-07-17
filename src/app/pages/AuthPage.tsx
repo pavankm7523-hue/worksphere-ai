@@ -107,7 +107,7 @@ export default function AuthPage() {
             } else if (profile.role === "manager") {
               navigate("/dashboard/manager");
             } else {
-              navigate("/briefing");
+              navigate("/dashboard/hr");
             }
           } else {
             // Logged in but has no profile row -> ask them to choose workspace
@@ -187,7 +187,7 @@ export default function AuthPage() {
             setUserStatus(status);
 
             if (userRole === "hr") {
-              navigate("/briefing");
+              navigate("/dashboard/hr");
             } else if (userRole === "employee") {
               navigate("/dashboard/employee");
             } else {

@@ -41,10 +41,11 @@ BEGIN
     v_status := 'pending';
   END IF;
 
-  -- Insert employee profile
-  INSERT INTO public.employees (user_id, full_name, role, company_id, status, department)
-  VALUES (NEW.id, v_full_name, v_role, v_company_id, v_status, 'Engineering')
-  ON CONFLICT (user_id) DO NOTHING;
+  -- Insert employee profile if not exists
+  IF NOT EXISTS (SELECT 1 FROM public.employees WHERE user_id = NEW.id) THEN
+    INSERT INTO public.employees (user_id, full_name, role, company_id, status, department)
+    VALUES (NEW.id, v_full_name, v_role, v_company_id, v_status, 'Engineering');
+  END IF;
 
   RETURN NEW;
 END;
