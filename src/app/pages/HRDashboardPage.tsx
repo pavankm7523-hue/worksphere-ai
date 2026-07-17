@@ -116,12 +116,25 @@ export default function HRDashboardPage() {
     setLoading(true);
     setError("");
     try {
-      const targetCompanyId = companyId || undefined;
+      // Resolve companyId from DB if context is missing (e.g. page reload)
+      let resolvedCompanyId = companyId;
+      if (!resolvedCompanyId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from("employees")
+            .select("company_id")
+            .eq("user_id", user.id)
+            .single();
+          resolvedCompanyId = profile?.company_id || null;
+        }
+      }
+
       const [empList, leaveList, logsList, pendingList] = await Promise.all([
-        getAllEmployees(targetCompanyId),
-        getAllLeaveRequests(targetCompanyId),
-        getAllAttendanceLogs(targetCompanyId),
-        companyId ? getPendingRequests(companyId) : Promise.resolve([])
+        getAllEmployees(resolvedCompanyId || undefined),
+        getAllLeaveRequests(resolvedCompanyId || undefined),
+        getAllAttendanceLogs(resolvedCompanyId || undefined),
+        resolvedCompanyId ? getPendingRequests(resolvedCompanyId) : Promise.resolve([])
       ]);
 
       setEmployees(empList);
@@ -1029,8 +1042,8 @@ export default function HRDashboardPage() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-white/[0.08] bg-white/[0.02] text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        <th className="py-4 px-6">Name</th>
-                        <th className="py-4 px-6">Email</th>
+                        <th className="py-4 px-6">Full Name</th>
+                        <th className="py-4 px-6">Department</th>
                         <th className="py-4 px-6">Role Requested</th>
                         <th className="py-4 px-6 text-right">Actions</th>
                       </tr>
@@ -1039,7 +1052,7 @@ export default function HRDashboardPage() {
                       {pendingUsers.map((p) => (
                         <tr key={p.id} className="text-xs hover:bg-white/[0.01] transition-colors">
                           <td className="py-4 px-6 font-semibold text-foreground">{p.full_name}</td>
-                          <td className="py-4 px-6 text-muted-foreground font-mono-data">{p.user_id}</td>
+                          <td className="py-4 px-6 text-muted-foreground font-mono-data">{p.department || "—"}</td>
                           <td className="py-4 px-6">
                             <Badge color={p.role === "manager" ? "violet" : "cyan"}>
                               {p.role.toUpperCase()}

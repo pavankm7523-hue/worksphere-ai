@@ -32,27 +32,28 @@ export function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  // Check access request status for pending/denied accounts (HR is always active upon setup)
-  if (role && role !== "hr") {
-    if (userStatus === "pending") {
-      return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6">
-          <div className="max-w-md text-center space-y-6 bg-white/[0.02] border border-white/[0.08] p-8 rounded-3xl backdrop-blur-xl">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto" style={{ background: "linear-gradient(135deg,rgba(124,58,237,0.2),rgba(79,70,229,0.2))", border: "1px solid rgba(124,58,237,0.3)" }}>
-              <Clock className="text-violet-400" size={24} />
-            </div>
-            <h2 className="text-2xl font-bold font-display">Registration Pending</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed font-sans">
-              Your access request is currently pending HR approval. You will be able to access your dashboard once an administrator activates your account.
-            </p>
-            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/"; }} className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/[0.04] hover:bg-white/[0.08] text-foreground border border-white/[0.08] cursor-pointer transition-all">
-              Sign Out
-            </button>
+  // Check access request status for pending/denied accounts
+  if (userStatus === "pending") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6">
+        <div className="max-w-md text-center space-y-6 bg-white/[0.02] border border-white/[0.08] p-8 rounded-3xl backdrop-blur-xl">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto" style={{ background: "linear-gradient(135deg,rgba(124,58,237,0.2),rgba(79,70,229,0.2))", border: "1px solid rgba(124,58,237,0.3)" }}>
+            <Clock className="text-violet-400" size={24} />
           </div>
+          <h2 className="text-2xl font-bold font-display">Registration Pending</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed font-sans">
+            {role === "hr"
+              ? "Your HR Administrator account is being set up. Please contact WorkSphere support if this persists."
+              : "Your access request is currently pending HR approval. You will be able to access your dashboard once an administrator activates your account."}
+          </p>
+          <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/"; }} className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/[0.04] hover:bg-white/[0.08] text-foreground border border-white/[0.08] cursor-pointer transition-all">
+            Sign Out
+          </button>
         </div>
-      );
-    }
-    if (userStatus === "denied") {
+      </div>
+    );
+  }
+  if (userStatus === "denied") {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6">
           <div className="max-w-md text-center space-y-6 bg-white/[0.02] border border-white/[0.08] p-8 rounded-3xl backdrop-blur-xl">
@@ -68,8 +69,7 @@ export function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {
             </button>
           </div>
         </div>
-      );
-    }
+    );
   }
 
   // Role mismatch -> Redirect to the user's appropriate workspace
