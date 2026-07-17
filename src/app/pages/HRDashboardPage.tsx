@@ -246,7 +246,6 @@ export default function HRDashboardPage() {
     { id: "recruitment", icon: Brain, label: "Recruitment (AI)", action: () => navigate("/recruitment") },
     { id: "attendance", icon: Clock, label: "Attendance" },
     { id: "performance", icon: Award, label: "Performance" },
-    { id: "approvals", icon: UserCheck, label: "Pending Requests" },
     { id: "permissions", icon: Layers, label: "Permissions Matrix" },
     { id: "compliance", icon: Shield, label: "Compliance" },
   ];
@@ -972,65 +971,7 @@ export default function HRDashboardPage() {
             </div>
           )}
 
-          {activePage === "approvals" && (
-            <div className="space-y-6">
-              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Pending Requests</h3>
-                <p className="text-xs text-muted-foreground">Approve or deny pending Employee and Manager workspace registration requests.</p>
-              </div>
 
-              <div className="border border-white/[0.08] rounded-2xl bg-white/[0.02] overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-white/[0.08] bg-white/[0.02] text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                        <th className="py-4 px-6">Full Name</th>
-                        <th className="py-4 px-6">Department</th>
-                        <th className="py-4 px-6">Role Requested</th>
-                        <th className="py-4 px-6 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
-                      {pendingUsers.map((p) => (
-                        <tr key={p.id} className="text-xs hover:bg-white/[0.01] transition-colors">
-                          <td className="py-4 px-6 font-semibold text-foreground">{p.full_name}</td>
-                          <td className="py-4 px-6 text-muted-foreground font-mono-data">{p.department || "—"}</td>
-                          <td className="py-4 px-6">
-                            <Badge color={p.role === "manager" ? "violet" : "cyan"}>
-                              {p.role.toUpperCase()}
-                            </Badge>
-                          </td>
-                          <td className="py-4 px-6 text-right">
-                            <div className="flex justify-end gap-2">
-                              <button
-                                onClick={() => handleDenyRequest(p.id)}
-                                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 cursor-pointer transition-all"
-                              >
-                                Deny
-                              </button>
-                              <button
-                                onClick={() => handleApproveRequest(p.id)}
-                                className="px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 cursor-pointer transition-all"
-                              >
-                                Approve
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {pendingUsers.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="text-center py-12 text-xs text-muted-foreground">
-                            No pending registration requests.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
 
           {activePage === "permissions" && (
             <div className="space-y-6">

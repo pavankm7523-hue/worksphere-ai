@@ -128,18 +128,7 @@ export default function AuthPage() {
             const profile = employeeData[0];
             setRole(profile.role);
             setCompanyId(profile.company_id);
-            setUserStatus(profile.status);
-
-            if (profile.status === "denied") {
-              setError("Your access request was denied. Contact your HR administrator.");
-              setLoading(false);
-              return;
-            }
-
-            if (profile.status === "pending") {
-              navigate(profile.role === "employee" ? "/dashboard/employee" : "/dashboard/manager");
-              return;
-            }
+            setUserStatus("active");
 
             if (profile.role === "employee") {
               navigate("/dashboard/employee");
@@ -209,11 +198,10 @@ export default function AuthPage() {
             const profile = employeeData && employeeData.length > 0 ? employeeData[0] : null;
             const userRole = profile?.role || targetRole;
             const compId = profile?.company_id || null;
-            const status = profile?.status || (targetRole === "hr" ? "active" : "pending");
 
             setRole(userRole);
             setCompanyId(compId);
-            setUserStatus(status);
+            setUserStatus("active");
 
             if (userRole === "hr") {
               navigate("/dashboard/hr");
