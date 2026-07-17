@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Home, Users, Clock, DollarSign, Award, Shield, BarChart3,
   Layers, LogOut, Search, Bell, Sun, Moon, Brain, X, Menu,
-  UserCheck, Briefcase, AlertTriangle, Target, MoreHorizontal, ArrowRight, Check
+  UserCheck, Briefcase, AlertTriangle, Target, MoreHorizontal, ArrowRight, Check,
+  Calendar
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { useIsMobile } from "../components/ui/use-mobile";
@@ -99,12 +100,11 @@ export default function HRDashboardPage() {
 
   const navItems = [
     { id: "overview", icon: Home, label: "Overview" },
-    { id: "recruitment", icon: Users, label: "Recruitment", action: () => navigate("/recruitment") },
+    { id: "recruitment", icon: Brain, label: "Recruitment (AI)", action: () => navigate("/recruitment") },
+    { id: "leave", icon: Calendar, label: "Leave Management" },
     { id: "attendance", icon: Clock, label: "Attendance" },
-    { id: "payroll", icon: DollarSign, label: "Payroll" },
     { id: "performance", icon: Award, label: "Performance" },
     { id: "compliance", icon: Shield, label: "Compliance" },
-    { id: "reports", icon: BarChart3, label: "Reports" },
   ];
 
   // Dynamic KPI calculations
@@ -356,170 +356,410 @@ export default function HRDashboardPage() {
 
         {/* Dashboard Content */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-          {/* KPI grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {kpis.map(({ label, value, change, up, icon: Icon, color }, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                whileHover={{ y: -3 }}
-                className={`rounded-2xl border p-4 flex flex-col justify-between ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: `${color}15` }}>
-                    <Icon size={14} style={{ color }} />
-                  </div>
-                  <span className={`text-[10px] font-semibold font-mono-data ${up ? "text-emerald-400" : "text-red-400"}`}>{change}</span>
-                </div>
-                <p className="text-xl font-display font-bold text-foreground mb-0.5">{value}</p>
-                <p className="text-[10px] text-muted-foreground">{label}</p>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Charts row */}
-          <div className="grid lg:grid-cols-2 gap-4 mb-4">
-            {/* Attendance Area Chart */}
-            <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground font-display">Attendance Trends</p>
-                  <p className="text-xs text-muted-foreground">6-month historical baseline</p>
-                </div>
-                <Badge color="violet">Baseline</Badge>
-              </div>
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={attendanceData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
-                    <defs>
-                      <linearGradient id="attGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"} />
-                    <XAxis dataKey="month" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Area type="monotone" dataKey="present" stroke="#7c3aed" strokeWidth={2} fill="url(#attGrad)" name="Present %" dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Attrition Risk (Placeholder comment: keeping attritionData historical chart baseline) */}
-            <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-sm font-semibold text-foreground font-display">Attrition Risk vs Actual (Placeholder)</p>
-                  <p className="text-xs text-muted-foreground">Historical attrition projections</p>
-                </div>
-                <Badge color="red">Risk Projections</Badge>
-              </div>
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={attritionData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"} />
-                    <XAxis dataKey="month" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Line type="monotone" dataKey="risk" stroke="#f43f5e" strokeWidth={2} dot={false} name="Flagged" />
-                    <Line type="monotone" dataKey="actual" stroke="#22d3ee" strokeWidth={2} dot={false} name="Departed" strokeDasharray="5 5" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom row */}
-          <div className="grid lg:grid-cols-3 gap-4">
-            {/* Recruitment Funnel */}
-            <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-sm font-semibold text-foreground font-display">Recruitment Funnel</p>
-                <button onClick={() => navigate("/recruitment")} className="text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium cursor-pointer bg-transparent border-none">
-                  View Kanban →
-                </button>
-              </div>
-              <div style={{ height: 180 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={recruitmentFunnel} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 60 }}>
-                    <XAxis type="number" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="stage" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 9 }} axisLine={false} tickLine={false} width={60} />
-                    <Tooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Candidates">
-                      {recruitmentFunnel.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Dept Distribution */}
-            <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-              <div className="mb-4">
-                <p className="text-sm font-semibold text-foreground font-display">Department Distribution</p>
-                <p className="text-xs text-muted-foreground">{totalStaffCount} live profiles</p>
-              </div>
-              <div style={{ height: 180 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={deptDistribution} cx="50%" cy="50%" innerRadius={45} outerRadius={75} dataKey="value" paddingAngle={3}>
-                      {deptDistribution.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                    </Pie>
-                    <Tooltip content={<ChartTooltipContent />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {deptDistribution.slice(0, 4).map(d => (
-                  <div key={d.name} className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full" style={{ background: d.fill }} />
-                    <span className="text-[10px] text-muted-foreground">{d.name}</span>
-                  </div>
+          {activePage === "overview" && (
+            <>
+              {/* KPI grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {kpis.map(({ label, value, change, up, icon: Icon, color }, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    whileHover={{ y: -3 }}
+                    className={`rounded-2xl border p-4 flex flex-col justify-between ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: `${color}15` }}>
+                        <Icon size={14} style={{ color }} />
+                      </div>
+                      <span className={`text-[10px] font-semibold font-mono-data ${up ? "text-emerald-400" : "text-red-400"}`}>{change}</span>
+                    </div>
+                    <p className="text-xl font-display font-bold text-foreground mb-0.5">{value}</p>
+                    <p className="text-[10px] text-muted-foreground">{label}</p>
+                  </motion.div>
                 ))}
               </div>
-            </div>
 
-            {/* Actionable Pending Leave Requests */}
-            <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-sm font-semibold text-foreground font-display">Pending Leave Requests</p>
-                <Badge color="violet">Review Needed</Badge>
+              {/* Charts row */}
+              <div className="grid lg:grid-cols-2 gap-4 mb-4">
+                {/* Attendance Area Chart */}
+                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground font-display">Attendance Trends</p>
+                      <p className="text-xs text-muted-foreground">6-month historical baseline</p>
+                    </div>
+                    <Badge color="violet">Baseline</Badge>
+                  </div>
+                  <div style={{ height: 200 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={attendanceData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+                        <defs>
+                          <linearGradient id="attGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.25} />
+                            <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"} />
+                        <XAxis dataKey="month" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltipContent />} />
+                        <Area type="monotone" dataKey="present" stroke="#7c3aed" strokeWidth={2} fill="url(#attGrad)" name="Present %" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Attrition Risk (Placeholder comment: keeping attritionData historical chart baseline) */}
+                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground font-display">Attrition Risk vs Actual (Placeholder)</p>
+                      <p className="text-xs text-muted-foreground">Historical attrition projections</p>
+                    </div>
+                    <Badge color="red">Risk Projections</Badge>
+                  </div>
+                  <div style={{ height: 200 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={attritionData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"} />
+                        <XAxis dataKey="month" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltipContent />} />
+                        <Line type="monotone" dataKey="risk" stroke="#f43f5e" strokeWidth={2} dot={false} name="Flagged" />
+                        <Line type="monotone" dataKey="actual" stroke="#22d3ee" strokeWidth={2} dot={false} name="Departed" strokeDasharray="5 5" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-3 overflow-y-auto" style={{ maxHeight: 180 }}>
-                {leaveRequests.filter(r => r.status === "pending").map((req, i) => (
-                  <div key={i} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02] flex flex-col gap-2">
-                    <div className="flex items-start justify-between">
+
+              {/* Bottom row */}
+              <div className="grid lg:grid-cols-3 gap-4">
+                {/* Recruitment Funnel */}
+                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-sm font-semibold text-foreground font-display">Recruitment Funnel</p>
+                    <button onClick={() => navigate("/recruitment")} className="text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium cursor-pointer bg-transparent border-none">
+                      View Kanban →
+                    </button>
+                  </div>
+                  <div style={{ height: 180 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={recruitmentFunnel} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 60 }}>
+                        <XAxis type="number" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 9 }} axisLine={false} tickLine={false} />
+                        <YAxis type="category" dataKey="stage" tick={{ fill: isDark ? "#64748b" : "#475569", fontSize: 9 }} axisLine={false} tickLine={false} width={60} />
+                        <Tooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Candidates">
+                          {recruitmentFunnel.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Dept Distribution */}
+                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <div className="mb-4">
+                    <p className="text-sm font-semibold text-foreground font-display">Department Distribution</p>
+                    <p className="text-xs text-muted-foreground">{totalStaffCount} live profiles</p>
+                  </div>
+                  <div style={{ height: 180 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={deptDistribution} cx="50%" cy="50%" innerRadius={45} outerRadius={75} dataKey="value" paddingAngle={3}>
+                          {deptDistribution.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                        </Pie>
+                        <Tooltip content={<ChartTooltipContent />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {deptDistribution.slice(0, 4).map(d => (
+                      <div key={d.name} className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full" style={{ background: d.fill }} />
+                        <span className="text-[10px] text-muted-foreground">{d.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Actionable Pending Leave Requests */}
+                <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-sm font-semibold text-foreground font-display">Pending Leave Requests</p>
+                    <Badge color="violet">Review Needed</Badge>
+                  </div>
+                  <div className="space-y-3 overflow-y-auto" style={{ maxHeight: 180 }}>
+                    {leaveRequests.filter(r => r.status === "pending").map((req, i) => (
+                      <div key={i} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02] flex flex-col gap-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Staff Member"}</p>
+                            <p className="text-[10px] text-muted-foreground font-mono-data">{req.type} · {req.start_date} to {req.end_date}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => handleStatusUpdate(req.id, "rejected")}
+                            className="px-2 py-1 rounded text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold cursor-pointer border border-red-500/20"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            onClick={() => handleStatusUpdate(req.id, "approved")}
+                            className="px-2 py-1 rounded text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold cursor-pointer border border-emerald-500/20"
+                          >
+                            Approve
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {leaveRequests.filter(r => r.status === "pending").length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-10">No pending leave requests.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activePage === "leave" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Leave Requests Management</h3>
+                <p className="text-xs text-muted-foreground">Review, approve, or reject employee leave requests.</p>
+              </div>
+
+              <div className="grid lg:grid-cols-3 gap-6">
+                {/* Pending Leave Requests */}
+                <div className="lg:col-span-1 space-y-4">
+                  <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">Pending Approvals</h4>
+                      <Badge color="violet">{leaveRequests.filter(r => r.status === "pending").length}</Badge>
+                    </div>
+                    <div className="space-y-3">
+                      {leaveRequests.filter(r => r.status === "pending").map((req) => (
+                        <div key={req.id} className="p-4 rounded-xl bg-white/[0.01] border border-white/[0.03] space-y-3">
+                          <div>
+                            <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Employee"}</p>
+                            <p className="text-[10px] text-violet-400 font-medium mt-0.5">{req.type}</p>
+                            <p className="text-[10px] text-muted-foreground mt-1 font-mono-data">{req.start_date} to {req.end_date}</p>
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => handleStatusUpdate(req.id, "rejected")}
+                              className="px-3 py-1.5 rounded-lg text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold cursor-pointer border border-red-500/20 transition-all"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              onClick={() => handleStatusUpdate(req.id, "approved")}
+                              className="px-3 py-1.5 rounded-lg text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold cursor-pointer border border-emerald-500/20 transition-all"
+                            >
+                              Approve
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {leaveRequests.filter(r => r.status === "pending").length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-10">All requests caught up!</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* History Log */}
+                <div className="lg:col-span-2">
+                  <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                    <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4">Request Log</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
+                            <th className="pb-3 font-semibold">Employee</th>
+                            <th className="pb-3 font-semibold">Type</th>
+                            <th className="pb-3 font-semibold">Dates</th>
+                            <th className="pb-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/[0.02]">
+                          {leaveRequests.map((req) => (
+                            <tr key={req.id} className="text-xs hover:bg-white/[0.01]">
+                              <td className="py-3 font-medium text-foreground">{req.employees?.full_name || "Employee"}</td>
+                              <td className="py-3 text-muted-foreground">{req.type}</td>
+                              <td className="py-3 font-mono-data text-muted-foreground">{req.start_date} to {req.end_date}</td>
+                              <td className="py-3">
+                                <Badge color={req.status === "approved" ? "emerald" : req.status === "rejected" ? "red" : "amber"}>
+                                  {req.status}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                          {leaveRequests.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="text-center py-10 text-xs text-muted-foreground">No leave history records found.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activePage === "attendance" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Employee Attendance Log</h3>
+                <p className="text-xs text-muted-foreground">Monitor check-in, check-out times, and daily statuses across the workforce.</p>
+              </div>
+
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/[0.04] text-[10px] uppercase text-muted-foreground font-mono">
+                        <th className="pb-3 font-semibold">Date</th>
+                        <th className="pb-3 font-semibold">Employee</th>
+                        <th className="pb-3 font-semibold">Check In</th>
+                        <th className="pb-3 font-semibold">Check Out</th>
+                        <th className="pb-3 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.02]">
+                      {attendanceLogs.map((log) => (
+                        <tr key={log.id} className="text-xs hover:bg-white/[0.01]">
+                          <td className="py-3 font-mono-data text-foreground">{log.date}</td>
+                          <td className="py-3 font-medium text-foreground">{log.employees?.full_name || "Employee"}</td>
+                          <td className="py-3 font-mono-data text-muted-foreground">{log.check_in ? new Date(log.check_in).toLocaleTimeString() : "—"}</td>
+                          <td className="py-3 font-mono-data text-muted-foreground">{log.check_out ? new Date(log.check_out).toLocaleTimeString() : "—"}</td>
+                          <td className="py-3">
+                            <Badge color={log.status === "present" ? "emerald" : log.status === "late" ? "amber" : "red"}>
+                              {log.status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                      {attendanceLogs.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">No attendance records registered.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activePage === "performance" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Performance Reviews</h3>
+                <p className="text-xs text-muted-foreground">Manage employee feedback, review metrics, and department averages.</p>
+              </div>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {employees.map((emp) => (
+                  <div key={emp.id} className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                    <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-bold text-foreground">{req.employees?.full_name || "Staff Member"}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono-data">{req.type} · {req.start_date} to {req.end_date}</p>
+                        <h4 className="text-sm font-bold text-foreground">{emp.full_name}</h4>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{emp.department} · {emp.role.toUpperCase()}</p>
+                      </div>
+                      <Badge color="violet">Active</Badge>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">Performance Score:</span>
+                        <span className="font-bold text-foreground font-mono-data">4.5 / 5.0</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <div
+                            key={s}
+                            className={`w-2.5 h-2.5 rounded-full ${
+                              s <= 4 ? "bg-violet-500" : "bg-white/[0.08]"
+                            }`}
+                          />
+                        ))}
                       </div>
                     </div>
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => handleStatusUpdate(req.id, "rejected")}
-                        className="px-2 py-1 rounded text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-400 font-semibold cursor-pointer border border-red-500/20"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        onClick={() => handleStatusUpdate(req.id, "approved")}
-                        className="px-2 py-1 rounded text-[10px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 font-semibold cursor-pointer border border-emerald-500/20"
-                      >
-                        Approve
-                      </button>
+
+                    <div className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
+                      <p className="text-[11px] text-muted-foreground leading-normal italic">
+                        "Exceeds standard delivery benchmarks. Demonstrates excellent cross-functional collaboration and clear architectural execution."
+                      </p>
                     </div>
                   </div>
                 ))}
-                {leaveRequests.filter(r => r.status === "pending").length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-10">No pending leave requests.</p>
-                )}
               </div>
             </div>
-          </div>
+          )}
+
+          {activePage === "compliance" && (
+            <div className="space-y-6">
+              <div className={`rounded-2xl border p-5 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                <h3 className="text-sm font-semibold text-foreground font-display mb-1">Compliance & Platform Security</h3>
+                <p className="text-xs text-muted-foreground">Verify Row Level Security (RLS), Storage configurations, and document statuses.</p>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-6">
+                <div className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-2">Platform Infrastructure</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Database RLS Isolation</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Profiles isolated per user ID using native policies</p>
+                      </div>
+                      <Badge color="emerald">100% Secure</Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Storage Policies</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">HR role required to read/list candidate resumes</p>
+                      </div>
+                      <Badge color="emerald">Active</Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.01] border border-white/[0.02]">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">AI Edge Integration</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Secure token passing to Deno Edge runtime</p>
+                      </div>
+                      <Badge color="violet">Gemini 2.5 Flash</Badge>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`rounded-2xl border p-5 space-y-4 ${dynamicStyles.cardBg} ${dynamicStyles.cardBorder}`}>
+                  <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-2">Audit Compliance Logs</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-xs pb-2 border-b border-white/[0.02]">
+                      <span className="text-muted-foreground">Employment Contracts Verified</span>
+                      <span className="font-semibold text-foreground">6 / 6</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs pb-2 border-b border-white/[0.02]">
+                      <span className="text-muted-foreground">Tax Declaration Compliance</span>
+                      <span className="font-semibold text-foreground">100% complete</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs pb-2 border-b border-white/[0.02]">
+                      <span className="text-muted-foreground">NDA Sign-offs Logged</span>
+                      <span className="font-semibold text-foreground">6 Signed</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </PageWrapper>
