@@ -37,14 +37,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase
         .from("employees")
         .select("role")
-        .eq("user_id", userId)
-        .maybeSingle(); // maybeSingle returns null if no rows instead of throwing single error
+        .eq("user_id", userId);
 
       if (error) {
         console.error("Error fetching user role from database:", error);
         return null;
       }
-      return (data?.role || null) as Role;
+      if (!data || data.length === 0) return null;
+      return (data[0]?.role || null) as Role;
     } catch (err) {
       console.error("Unexpected error fetching employee profile:", err);
       return null;

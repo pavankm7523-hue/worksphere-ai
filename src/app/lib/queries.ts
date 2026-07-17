@@ -40,11 +40,11 @@ export async function getEmployeeProfile(userId: string) {
   const { data, error } = await supabase
     .from("employees")
     .select("*")
-    .eq("user_id", userId)
-    .maybeSingle();
+    .eq("user_id", userId);
   
   if (error) throw error;
-  return data as EmployeeProfile | null;
+  if (!data || data.length === 0) return null;
+  return data[0] as EmployeeProfile;
 }
 
 // 2. Fetch leave requests history for specific employee

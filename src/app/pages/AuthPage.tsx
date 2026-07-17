@@ -67,8 +67,7 @@ export default function AuthPage() {
           const { data: employeeData, error: dbError } = await supabase
             .from("employees")
             .select("role")
-            .eq("user_id", data.user.id)
-            .maybeSingle();
+            .eq("user_id", data.user.id);
 
           if (dbError) {
             setError("Authentication succeeded, but failed to load profile data: " + dbError.message);
@@ -76,7 +75,7 @@ export default function AuthPage() {
             return;
           }
 
-          const userRole = employeeData?.role;
+          const userRole = employeeData && employeeData.length > 0 ? employeeData[0].role : null;
           if (userRole) {
             setRole(userRole as any);
             if (userRole === "employee") {
